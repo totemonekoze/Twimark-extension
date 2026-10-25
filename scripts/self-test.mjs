@@ -1,0 +1,173 @@
+// 自己テスト。manifest の参照と import、トークンの受け取り、ボタンの目印と絵、ポップアップと設定の画面を確かめる。依存パッケージは使わない。
+// アプリ（Twimark の scripts/self-test.mjs）から、拡張の分を移したもの（定義 2026-10-25-011）。共有コード（src/shared）の試験はアプリにある
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { parseUrl } from '../src/shared/meta.js';
+
+const tests = [];
+const test = (name, fn) => tests.push([name, fn]);
+
+// PNG の頭の IHDR から大きさを読む
+const pngSize = (path) => {
+  const b = readFileSync(new URL(path, import.meta.url));
+  assert.equal(b.subarray(1, 4).toString(), 'PNG', path);
+  return [b.readUInt32BE(16), b.readUInt32BE(20)];
+};
+test('アイコン: 拡張の PNG があり、大きさが合う', () => {
+  for (const size of [16, 32, 48, 128]) assert.deepEqual(pngSize(`../src/icons/icon-${size}.png`), [size, size], size);
+});
+
+test('拡張の link.js: Twimark の画面から、決まった形のトークンだけを受け取る', async () => {
+  const { runInNewContext } = await import('node:vm');
+  const ORIGIN_LINK = 'https://twimark.ho-service.workers.dev';
+  let onMessage = null;
+  const saved = [];
+  const posted = [];
+  const window = { addEventListener: (type, fn) => { if (type === 'message') onMessage = fn; }, postMessage: (m, o) => posted.push([m, o]) };
+  const sandbox = { window, document: { documentElement: { dataset: {} } }, chrome: { storage: { local: { set: async (v) => { saved.push(v); } } } } };
+  runInNewContext(readFileSync(new URL('../src/link.js', import.meta.url), 'utf8'), sandbox);
+  assert.equal(sandbox.document.documentElement.dataset.twimarkExtension, 'ready');
+  const token = 'A'.repeat(43);
+  const send = async (event) => { onMessage({ source: window, origin: ORIGIN_LINK, ...event }); await new Promise((r) => setTimeout(r, 0)); };
+  await send({ origin: 'https://evil.test', data: { type: 'twimark-extension-token', token } });
+  await send({ source: {}, data: { type: 'twimark-extension-token', token } });
+  await send({ data: { type: 'other', token } });
+  await send({ data: { type: 'twimark-extension-token', token: 'short' } });
+  await send({ data: { type: 'twimark-extension-token', token: `${token}<script>` } });
+  assert.equal(saved.length, 0, '受け取ってはいけないものを受け取った');
+  await send({ data: { type: 'twimark-extension-token', token, login: 'owner' } });
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].settings.token, token);
+  assert.equal(saved[0].settings.login, 'owner');
+  assert.equal(JSON.stringify(posted.at(-1)), JSON.stringify([{ type: 'twimark-extension-linked' }, ORIGIN_LINK]));
+  // link.js の対象は Twimark のオリジンだけ
+  const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
+  const linkScript = manifest.content_scripts.find((s) => s.js.includes('link.js'));
+  assert.deepEqual(linkScript.matches, [`${ORIGIN_LINK}/*`]);
+  assert.ok(!manifest.content_scripts.some((s) => s !== linkScript && s.matches.some((m) => m.includes('twimark'))));
+});
+// src をそのまま読み込むので、manifest と import の先がすべて src の中にあるかを確かめる
+test('拡張: manifest の参照とページの import が、すべて src の中にある', () => {
+  const source = (path) => new URL(`../src/${path}`, import.meta.url);
+  const has = (path) => existsSync(source(path));
+  const manifest = JSON.parse(readFileSync(source('manifest.json'), 'utf8'));
+  assert.equal(manifest.manifest_version, 3);
+  const refs = [manifest.action?.default_popup, manifest.options_page, manifest.background?.service_worker,
+    ...(manifest.content_scripts ?? []).flatMap((s) => [...(s.js ?? []), ...(s.css ?? [])]),
+    ...Object.values(manifest.icons ?? {}), ...Object.values(manifest.action?.default_icon ?? {})].filter(Boolean);
+  for (const ref of refs) assert.ok(has(ref), `manifest.json の ${ref} がない`);
+  // ページの <script src>・<link href> と、そこから辿る import（'..' で外に出るものは欠けと同じ扱い）
+  const seen = new Set();
+  const visit = (path, from) => {
+    assert.ok(!path.startsWith('../') && has(path), `${from} が指す ${path} が src にない`);
+    if (seen.has(path) || !path.endsWith('.js')) return;
+    seen.add(path);
+    const js = readFileSync(source(path), 'utf8');
+    // import './x'、import … from './x'、export … from './x'（行の途中の import() は辿らない）
+    for (const [, spec] of js.matchAll(/(?:^|\n)\s*(?:import\s*|(?:import|export)\b[^'"]*?\bfrom\s*)['"](\.[^'"]+)['"]/g)) {
+      const to = new URL(spec, `https://x/ext/${path}`).pathname;
+      visit(to.startsWith('/ext/') ? to.slice(5) : `..${to}`, path);
+    }
+  };
+  for (const page of refs.filter((r) => r.endsWith('.html'))) {
+    for (const [, ref] of readFileSync(source(page), 'utf8').matchAll(/\s(?:src|href)="([^":]+)"/g)) visit(ref, page);
+  }
+  assert.ok(seen.has('shared/store.js'), 'ポップアップが shared/ を読んでいない（辿り方の誤り）');
+  // service worker は module（manifest の background.type）なので import できる。import の先も src の中にあること
+  assert.equal(manifest.background.type, 'module');
+  visit(manifest.background.service_worker, 'manifest.json');
+  assert.ok(seen.has('shared/meta.js') && seen.has('bookmark.js'), 'background.js が shared/meta.js と bookmark.js を読んでいない');
+  // コンテンツスクリプトは import できない
+  for (const path of manifest.content_scripts.flatMap((s) => s.js)) {
+    assert.doesNotMatch(readFileSync(source(path), 'utf8'), /(?:^|\n)\s*(?:import|export)\b/, path);
+  }
+});
+// ---- 定義 2026-10-24-003（投稿・記事のブックマークのアイコン） ----
+// 定義 2026-10-25-009 で、対象に Instagram・pixiv・BOOTH を足した。版は 2026-10-25-010 で 0.6.1、その追記で 0.6.2 に
+test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH だけ。アイコンの絵が4つあり、版は 0.6.2', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
+  const content = manifest.content_scripts.find((s) => s.js.includes('content.js'));
+  for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm)\/\*$/, m);
+  for (const site of ['x.com', 'note.com', 'qiita.com', 'www.instagram.com', 'www.pixiv.net', 'booth.pm']) assert.ok(content.matches.includes(`https://${site}/*`), site);
+  assert.deepEqual(Object.keys(manifest.icons), ['16', '32', '48', '128']);
+  for (const p of Object.values(manifest.icons)) assert.ok(existsSync(new URL(`../src/${p}`, import.meta.url)), p);
+  assert.equal(manifest.version, '0.6.2');
+});
+test('拡張: bookmarkOf はポップアップと小さな画面で同じブックマークを作る（取れなければ貼り付けの本文）', async () => {
+  const { bookmarkOf } = await import('../src/bookmark.js');
+  const parsed = parseUrl('https://x.com/jack/status/20');
+  const item = { url: 'https://x.com/jack/status/20', author: { name: 'jack', handle: 'jack' }, postedAt: '2006-03-21T20:50:14.000Z', title: '', text: 'just setting up my twttr', photos: [], videos: [] };
+  const b = bookmarkOf(parsed, item, ['ツール', 'CLI'], '', 'メモ');
+  assert.deepEqual({ id: b.id, site: b.site, text: b.text, category: b.category, subcategory: b.subcategory, note: b.note }, { id: parsed.id, site: 'x', text: 'just setting up my twttr', category: 'ツール', subcategory: 'CLI', note: 'メモ' });
+  const pasted = bookmarkOf(parsed, null, ['ツール', null], '貼った本文');
+  assert.equal(pasted.text, '貼った本文');
+  assert.equal(pasted.author.handle, 'jack');
+  assert.equal(pasted.subcategory, null);
+  // ポップアップは bookmarkOf を使い、追加のあとに background.js へ読み直しを頼む
+  const popup = readFileSync(new URL('../src/popup.js', import.meta.url), 'utf8');
+  assert.match(popup, /bookmarkOf\(parsed, item,/);
+  assert.match(popup, /type: 'twimark-changed'/);
+});
+test('拡張: content.js がブックマーク（にあたる）ボタンの目印と、重ねて置かない印を持つ', () => {
+  const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
+  for (const sel of ['[data-engagement-action="bookmark"]', '[data-testid="bookmark"]', 'スキをつけたユーザーを見る', 'button[aria-label^="ストック"]', "attachShadow({ mode: 'closed' })", "type: 'twimark-state'", "type: 'twimark-save'"]) assert.ok(js.includes(sel), sel);
+  const bg = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
+  for (const t of ['twimark-state', 'twimark-save', 'twimark-link', 'twimark-open', 'twimark-changed']) assert.ok(bg.includes(`'${t}'`), t);
+  // 別の拡張やページからの知らせは受けない
+  assert.match(bg, /sender\.id === chrome\.runtime\.id/);
+});
+// ---- 定義 2026-10-25-009（拡張のボタンの絵、Instagram・pixiv・BOOTH、設定の画面、対応していないページの文） ----
+test('拡張のボタンの絵: Illustrator が書き出した mark.svg・mark-saved.svg が 24 の格子で、content.js が同じ座標を使う', () => {
+  const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
+  for (const name of ['mark.svg', 'mark-saved.svg']) {
+    const svg = readFileSync(new URL(`../src/icons/${name}`, import.meta.url), 'utf8');
+    assert.match(svg, /viewBox="0 0 24 24"/, name);
+    for (const [, points] of svg.matchAll(/points="([^"]+)"/g)) assert.ok(js.includes(points), `${name}: ${points}`);
+  }
+  assert.ok(existsSync(new URL('../design/make-mark.jsx', import.meta.url)));
+  // 定義 2026-10-25-010: しおりをやめて T を入れた角丸の四角。色は黄緑に固定し、チェックの丸（アクセント）は使わない
+  assert.ok(js.includes("stroke: '#76A040'") && js.includes("fill: '#8DB255'"));
+  assert.ok(!js.includes('badge') && !js.includes('19 21.5') && !js.includes("stroke: 'currentColor'"));
+  // 形は g の子に入れるので、node は子を受け取る（受け取らないと絵が空になり、ボタンが見えなくなる）
+  assert.ok(js.includes('const node = (tag, attrs, ...kids)') && js.includes('n.append(...kids)'));
+});
+test('拡張: Instagram・pixiv・BOOTH の目印と、計測の印を外すこと。共有メニューは X・note・Qiita だけ', () => {
+  const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
+  for (const sel of ['svg[aria-label="保存する"]', 'button.gtm-main-bookmark', "flexDirection === 'row-reverse'", '.item-card, .l-item-card-favorite', '/^gtm-/']) assert.ok(js.includes(sel), sel);
+  assert.match(js, /const SHARE = \{ 'qiita\.com': scanQiita, 'note\.com': scanNote \};/);
+  const css = readFileSync(new URL('../src/content.css', import.meta.url), 'utf8');
+  assert.ok(css.includes('[data-twimark-row] { display: flex;'));
+});
+test('拡張: 対応していないページの文は改行した決まった文で、設定の画面は options.js の指す data-* をすべて持つ', () => {
+  const popup = readFileSync(new URL('../src/popup.js', import.meta.url), 'utf8');
+  assert.ok(popup.includes('const UNSUPPORTED = `このページは追加できません。\n対応しているサイトは以下です。\n・X\n・Instagram\n・note\n・Qiita\n・pixiv\n・BOOTH`;'.replace(/\n/g, popup.includes('\r\n') ? '\r\n' : '\n')));
+  assert.ok(readFileSync(new URL('../src/popup.css', import.meta.url), 'utf8').includes('.msg { white-space: pre-line; }'));
+  const html = readFileSync(new URL('../src/options.html', import.meta.url), 'utf8');
+  const js = readFileSync(new URL('../src/options.js', import.meta.url), 'utf8');
+  for (const [, name] of js.matchAll(/\$\('\[(data-[a-z-]+)/g)) assert.ok(html.includes(name), name);
+  assert.match(html, /<link rel="stylesheet" href="options\.css" \/>/);
+  assert.doesNotMatch(html, /<style/);
+});
+// ---- レビューで足した試験（定義 2026-10-24-003） ----
+test('拡張のアイコン: 追加したら同じ投稿のアイコンを全部塗り、ページを送ったら小さな画面を閉じ、ほかで保存済みなら保存済みとして返す', () => {
+  const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
+  assert.match(js, /item\.dataset\.twimarkUrl = url;/);
+  assert.match(js, /other\.dataset\.twimarkUrl === url\) paint\(other, true/);
+  assert.match(js, /addEventListener\('scroll', \(e\) => \{ if \(panel && !e\.composedPath\(\)\.includes\(panel\)\) closePanel\(\); \}, \{ capture: true, passive: true \}\)/);
+  const bg = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
+  assert.match(bg, /err\?\.code !== 'duplicate'\) throw err;\s*forget\(\);\s*return \{ ok: true, already: true \};/);
+});
+
+let failed = 0;
+for (const [name, fn] of tests) {
+  try {
+    await fn();
+    console.log(`ok   ${name}`);
+  } catch (e) {
+    failed++;
+    console.log(`FAIL ${name}
+     ${e.message}`);
+  }
+}
+console.log(failed ? `${failed}件失敗しました。` : `${tests.length}件すべて成功しました。`);
+process.exitCode = failed ? 1 : 0;

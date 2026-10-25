@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Twimark 拡張の設定</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="options.css" />
+    <script type="module" src="options.js"></script>
+  </head>
+  <body>
+    <!-- 幅 480 の1列にカードを並べる（定義 2026-10-25-009）。文は句点ごとに改行する -->
+    <main class="opt">
+      <header class="opt-head">
+        <img src="icons/icon-32.png" width="32" height="32" alt="" />
+        <div>
+          <h1>Twimark 拡張の設定</h1>
+          <p class="note" data-version></p>
+        </div>
+      </header>
+
+      <section class="card" aria-labelledby="account-title">
+        <h2 id="account-title">アカウント</h2>
+        <p class="who"><span class="badge" data-badge hidden>ログイン中</span><span data-who>読み込み中…</span></p>
+        <p class="msg" role="status" data-status></p>
+        <div class="actions">
+          <button type="button" class="d-btn" data-test hidden>接続を確かめる</button>
+          <button type="button" class="d-btn danger" data-logout hidden>ログアウト</button>
+          <button type="button" class="d-btn primary" data-login hidden>ログイン</button>
+        </div>
+        <p class="note lines">ログインは、ツールバーの Twimark のボタンから行います。
+覚えるのは拡張のトークンだけで、パスワードは覚えません。</p>
+      </section>
+
+      <section class="card" aria-labelledby="sites-title">
+        <h2 id="sites-title">ボタンを出すサイト</h2>
+        <ul class="sites">
+          <li>X</li>
+          <li>Instagram</li>
+          <li>note</li>
+          <li>Qiita</li>
+          <li>pixiv</li>
+          <li>BOOTH</li>
+        </ul>
+        <p class="note lines">投稿・記事のブックマークのボタンの隣に、Twimark のボタンが出ます。
+保存済みになると、緑の Twimark のマークに変わります。</p>
+      </section>
+
+      <section class="card">
+        <details data-paste>
+          <summary>トークンを貼り付けて結ぶ（予備）</summary>
+          <form data-form>
+            <label>トークン<input class="d-input" name="token" type="password" required autocomplete="off" /></label>
+            <p class="note lines">一覧の画面の「設定」の「連携」で発行したものです。
+要らなくなったら、一覧の画面で取り消してください。</p>
+            <div class="actions"><button type="submit" class="d-btn">結ぶ</button></div>
+          </form>
+        </details>
+      </section>
+    </main>
+  </body>
+</html>

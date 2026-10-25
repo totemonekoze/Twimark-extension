@@ -1,0 +1,26 @@
+/* 拡張の設定の画面（定義 2026-10-25-009）。ポップアップと同じ部品（ui.css）に、カード（角丸 12、カードの間 16、中の余白 16）を足す。
+   ライト・ダークは端末に合わせる（色は Portal のくすみパステルの緑と、そのダーク） */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #1c1c1e; --surface: #2c2c2e; --text: #f2f2f2; --muted: #a8a7a2; --line: #3a3a3c; --soft: #262628;
+    --accent: #8db255; --accent-soft: #33452a; --accent-mid: #5e7a3a; --accent-ink: #c9e0a8; --danger: #ff6961;
+  }
+}
+body { min-height: 100vh; }
+.opt { display: grid; gap: 16px; width: min(480px, 100%); margin: 0 auto; padding: 32px 16px 48px; }
+.opt-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.opt-head img { border-radius: 7px; }
+.opt-head h1 { margin: 0; font-size: 1.2rem; }
+.card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.card h2 { margin: 0; font-size: .95rem; }
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: 1rem; font-weight: 600; }
+.badge { padding: 1px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: .78rem; font-weight: 700; }
+.lines { white-space: pre-line; }
+.actions { justify-content: flex-start; flex-wrap: wrap; }
+.d-btn.danger { color: var(--danger); }
+.msg:empty { display: none; }
+.sites { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sites li { padding: 8px 10px; border-radius: 8px; background: var(--soft); font-weight: 600; text-align: center; }
+details summary { cursor: pointer; font-weight: 600; }
+details[open] summary { margin-bottom: 12px; }

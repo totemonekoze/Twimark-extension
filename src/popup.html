@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>Twimarkに追加</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <main>
+      <!-- まだ結んでいないときの、最初のログインの画面 -->
+      <section data-login hidden>
+        <h1>Twimark にログイン</h1>
+        <p class="note">拡張をあなたの Twimark と結びます。最初の1回だけです。</p>
+        <form class="login" data-login-form>
+          <label>ID<input class="d-input" name="login" autocomplete="username" required /></label>
+          <label>パスワード<input class="d-input" name="password" type="password" autocomplete="current-password" required /></label>
+          <div class="actions"><button type="submit" class="d-btn primary" data-login-submit>ログイン</button></div>
+        </form>
+        <p class="msg" role="status" data-login-status></p>
+        <div class="alt">
+          <button type="button" class="d-btn" data-link-page>Twimark の画面でログイン（パスキー）</button>
+          <details data-paste>
+            <summary>トークンを貼り付ける（予備）</summary>
+            <form class="login" data-token-form>
+              <label>トークン<input class="d-input" name="token" type="password" autocomplete="off" required /></label>
+              <p class="note">一覧の画面の「設定」の「拡張・アプリのトークン」で発行したものです。</p>
+              <div class="actions"><button type="submit" class="d-btn">結ぶ</button></div>
+            </form>
+          </details>
+        </div>
+      </section>
+
+      <!-- 追加の画面 -->
+      <section data-add hidden>
+        <h1>Twimarkに追加</h1>
+        <p class="msg" role="status" data-status>読み込み中…</p>
+        <form data-form hidden>
+          <div class="preview">
+            <p class="where"><span class="site" data-site></span> <span class="muted" data-author></span></p>
+            <p class="title" data-title></p>
+            <p class="text" data-text></p>
+            <p class="url muted" data-url></p>
+          </div>
+          <label>カテゴリ<select class="d-input" name="category" required data-category></select></label>
+          <label data-paste-text hidden>本文（取得できなかったので貼り付けてください）<textarea class="d-input" name="text" rows="5" maxlength="5000"></textarea></label>
+          <label>メモ（任意）<textarea class="d-input" name="note" rows="2" maxlength="2000"></textarea></label>
+          <div class="actions">
+            <button type="button" class="d-btn" data-close>閉じる</button>
+            <button type="submit" class="d-btn primary" data-submit>追加</button>
+          </div>
+        </form>
+      </section>
+
+      <p class="foot muted"><span data-who></span> <span data-version></span> · <a href="options.html" target="_blank" data-options>設定</a></p>
+    </main>
+  </body>
+</html>

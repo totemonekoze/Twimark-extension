@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "Twimark",
+  "version": "0.6.2",
+  "description": "X・Instagram・note・Qiita・pixiv・BOOTH の投稿と記事を Twimark のブックマークに追加します。",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Twimarkに追加",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://twimark.ho-service.workers.dev/*",
+    "https://api.fxtwitter.com/*",
+    "https://note.com/*",
+    "https://qiita.com/*",
+    "https://www.instagram.com/*",
+    "https://www.pixiv.net/*",
+    "https://booth.pm/*",
+    "https://*.booth.pm/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://mobile.twitter.com/*",
+        "https://note.com/*",
+        "https://qiita.com/*",
+        "https://www.instagram.com/*",
+        "https://www.pixiv.net/*",
+        "https://booth.pm/*",
+        "https://*.booth.pm/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://twimark.ho-service.workers.dev/*"
+      ],
+      "js": [
+        "link.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

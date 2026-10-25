@@ -1,0 +1,5 @@
+/* 共有メニューに足した項目。複製した項目にはサイト側のホバーの表示が付かないことがあるので、ここで付ける */
+[role='menuitem'][data-twimark-item] { cursor: pointer; }
+[role='menuitem'][data-twimark-item]:hover { background-color: rgb(127 127 127 / .12); }
+/* Instagram の保存のボタンの包み。Twimark のアイコンを保存の左に横並びで置く（content.js の iconsInstagram） */
+[data-twimark-row] { display: flex; align-items: center; gap: 12px; }

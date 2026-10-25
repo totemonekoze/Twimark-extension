@@ -1,0 +1,19 @@
+body { width: 380px; }
+/* 小さなウィンドウで開いたときはウィンドウの幅に合わせる */
+html.window body { width: auto; }
+.preview { padding: .7rem .8rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.preview p { margin: 0; }
+.where { font-size: .82rem; }
+.site { font-weight: 600; }
+.title { font-weight: 650; margin-top: .3rem !important; }
+.title:empty { display: none; }
+.text { margin-top: .3rem !important; font-size: .86rem; white-space: pre-wrap; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.text:empty { display: none; }
+.url { margin-top: .4rem !important; font-size: .75rem; }
+/* 最初のログインの画面と、下の小さな行（ログイン中の ID、版、設定） */
+.login { margin-top: .7rem; }
+.alt { display: grid; gap: .5rem; margin-top: .8rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+.alt summary { cursor: pointer; font-size: .85rem; color: var(--muted); }
+.foot { margin: .9rem 0 0; font-size: .75rem; }
+/* 対応していないページの文などは、改行のまま出す */
+.msg { white-space: pre-line; }
