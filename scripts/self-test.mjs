@@ -1,6 +1,7 @@
 // 自己テスト。manifest の参照と import、トークンの受け取り、ボタンの目印と絵、ポップアップと設定の画面を確かめる。依存パッケージは使わない。
 // アプリ（Twimark の scripts/self-test.mjs）から、拡張の分を移したもの（定義 2026-10-25-011）。共有コード（src/shared）の試験はアプリにある
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { parseUrl } from '../src/shared/meta.js';
 
@@ -156,6 +157,24 @@ test('拡張のアイコン: 追加したら同じ投稿のアイコンを全部
   assert.match(js, /addEventListener\('scroll', \(e\) => \{ if \(panel && !e\.composedPath\(\)\.includes\(panel\)\) closePanel\(\); \}, \{ capture: true, passive: true \}\)/);
   const bg = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
   assert.match(bg, /err\?\.code !== 'duplicate'\) throw err;\s*forget\(\);\s*return \{ ok: true, already: true \};/);
+});
+
+// ---- 公開リポジトリに個人の値を入れない（アプリの定義 2026-10-26-001）。アプリの self-test.mjs にも同じ試験がある ----
+test('追跡中と未追跡のファイルに、メールアドレス・利用者名のパス・アカウントIDがない', () => {
+  // 許すメールアドレス: コミットの共同作者、GitHub の noreply、試験用の example
+  const allowMail = /^(noreply@anthropic\.com|[\w.+-]+@users\.noreply\.github\.com|[^@]+@([\w-]+\.)*example(\.com)?)$/i;
+  const root = new URL('../', import.meta.url);
+  const found = [];
+  for (const f of execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' }).split('\0')) {
+    if (!f || !existsSync(new URL(f, root))) continue;
+    const buf = readFileSync(new URL(f, root));
+    if (buf.includes(0)) continue;
+    const s = buf.toString();
+    for (const [m] of s.matchAll(/[\w.%+-]+@(?:[\w-]+\.)+[A-Za-z]{2,}/g)) if (!allowMail.test(m)) found.push(`${f}: メールアドレス`);
+    if (/[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s`"'<]/i.test(s) || /\/(Users|home)\/[\w.-]+\//.test(s)) found.push(`${f}: 利用者名のパス`);
+    if (/["']?account_id["']?\s*[:=]|\b[0-9a-f]{32}\b/i.test(s)) found.push(`${f}: アカウントID`);
+  }
+  assert.deepEqual(found, []);
 });
 
 let failed = 0;

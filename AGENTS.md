@@ -15,4 +15,5 @@
 ## このプロジェクトの制約
 
 - このリポジトリは公開（`totemonekoze/Twimark-extension`）。トークン、パスワード、個人の設定はコミットしない。
+- コミットの作者は GitHub の noreply のメールアドレス（`.git/config` に設定済み）。ファイルにメールアドレス、利用者名を含む絶対パス、アカウントIDを書かない（`scripts/self-test.mjs` が止める）。
 - 配布は GitHub のリリースに `twimark-extension-<版>.zip` を付ける（`README.md` の「配る」）。ストアには出さない。

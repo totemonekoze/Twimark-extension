@@ -2,3 +2,5 @@ build/
 release/
 node_modules/
 .env*
+# Claude Code の個人の設定（利用者名のパスを含みうる）
+.claude/settings.local.json
