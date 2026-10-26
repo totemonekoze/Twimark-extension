@@ -68,15 +68,15 @@ async function state(url) {
   };
 }
 
-// その場の追加。本文を取れず、貼り付けもなければ needText を返す（小さな画面が本文の欄を出す）
-async function save({ url, place, text = '' }) {
+// その場の追加。本文を取れず、貼り付けもなければ needText を返す（小さな画面が本文の欄を出す）。wants は要約見出しを作る・翻訳する
+async function save({ url, place, text = '', wants = {} }) {
   const parsed = parseUrl(url);
   const settings = await loadSettings();
   if (!parsed || !settings?.token) return { error: '追加できません。' };
   const item = await fetchMeta(parsed).catch(() => null);
   if (!item && !text.trim()) return { needText: true };
   try {
-    await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.add(bookmarkOf(parsed, item, place, text.trim())));
+    await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.add(bookmarkOf(parsed, item, place, text.trim(), '', wants)));
   } catch (err) {
     // ほかの端末で保存済み（覚えた内容が古い）。保存済みとして返し、読み直す
     if (err?.code !== 'duplicate') throw err;

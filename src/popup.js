@@ -156,7 +156,8 @@ async function showAdd(settings) {
     const [category, subcategory] = JSON.parse(select.value);
     const pasted = form.elements.namedItem('text').value.trim();
     if (!item && !pasted) { status('本文を貼り付けてください。', 'error'); return; }
-    const bookmark = bookmarkOf(parsed, item, [category, subcategory], pasted, form.elements.namedItem('note').value);
+    const wants = { summary: form.elements.namedItem('wantSummary').checked, translation: form.elements.namedItem('wantTranslation').checked };
+    const bookmark = bookmarkOf(parsed, item, [category, subcategory], pasted, form.elements.namedItem('note').value, wants);
     submit.disabled = true;
     status('保存中…');
     try {

@@ -46,6 +46,9 @@
           <label>カテゴリ<select class="d-input" name="category" required data-category></select></label>
           <label data-paste-text hidden>本文（取得できなかったので貼り付けてください）<textarea class="d-input" name="text" rows="5" maxlength="5000"></textarea></label>
           <label>メモ（任意）<textarea class="d-input" name="note" rows="2" maxlength="2000"></textarea></label>
+          <!-- 開くたびに両方 ON -->
+          <label class="toggle"><input type="checkbox" role="switch" name="wantSummary" checked />要約見出しを作る</label>
+          <label class="toggle"><input type="checkbox" role="switch" name="wantTranslation" checked />翻訳する<span class="muted">（日本語以外の本文だけ）</span></label>
           <div class="actions">
             <button type="button" class="d-btn" data-close>閉じる</button>
             <button type="submit" class="d-btn primary" data-submit>追加</button>

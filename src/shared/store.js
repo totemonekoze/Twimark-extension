@@ -104,10 +104,14 @@ export const ops = {
   // 独立のメモの題・本文・URL を直す（メモだけ）。ブックマークへの書き添えを書く（空で消す）
   editMemo: (id, fields) => ({ op: 'editMemo', args: [id, fields] }),
   setNote: (id, note) => ({ op: 'setNote', args: [id, note] }),
-  // 翻訳と要約見出し（Workers AI）。1件の足りない分を作る・選んだ5件までを作る・要約見出しをカードに出すか
+  // 翻訳と要約見出し（Workers AI）。1件の足りない分を作る・選んだ5件までを作る・要約見出しをカードに出すか。
+  // add の bookmark に wantSummary・wantTranslation（真偽、ないときは ON）を付けると、OFF の方は作らない
   refreshAi: (id) => ({ op: 'refreshAi', args: [id] }),
-  fillAi: (ids) => ({ op: 'fillAi', args: [ids] }),
+  // kinds は { summary, translation }（作る方を真。なければ両方）
+  fillAi: (ids, kinds) => ({ op: 'fillAi', args: kinds === undefined ? [ids] : [ids, kinds] }),
   setSummaryOn: (id, on) => ({ op: 'setSummaryOn', args: [id, on] }),
+  // 要約見出しを作るか・翻訳するか。wants は { wantSummary?, wantTranslation? }（渡した方だけ変える）
+  setAiWants: (id, wants) => ({ op: 'setAiWants', args: [id, wants] }),
 };
 
 // 独立のメモの id（memo: と 16 桁の乱数）。利用者の中で重ならなければよいので Math.random（アプリの Hermes には crypto がないことがある）

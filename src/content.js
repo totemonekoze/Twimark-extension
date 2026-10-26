@@ -286,6 +286,8 @@
     button { padding: 7px 14px; border: 0; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; background: rgb(127 127 127 / .16); color: inherit; }
     button.primary { background: var(--accent); color: var(--on); }
     button:disabled { opacity: .5; cursor: default; }
+    .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    .toggle input { margin: 0; accent-color: var(--accent); }
     .x { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: none; font-size: 18px; line-height: 1; }
   `;
   const el = (tag, props = {}, ...kids) => {
@@ -341,12 +343,20 @@
     select.append(...s.categories.map((c) => el('optgroup', { label: c }, option(c, null, c), ...(s.subcategories[c] ?? []).map((sub) => option(c, sub, `${c} › ${sub}`)))));
     if ([...select.options].some((o) => o.value === s.lastPlace)) select.value = s.lastPlace;
     const text = el('textarea', { hidden: true, placeholder: '本文を取得できませんでした。貼り付けてください', maxLength: 5000 });
+    // 要約見出しを作る・翻訳する（開くたびに両方 ON）
+    const toggle = (label) => {
+      const input = el('input', { type: 'checkbox', checked: true });
+      input.setAttribute('role', 'switch');
+      return [el('label', { className: 'toggle' }, input, label), input];
+    };
+    const [summaryRow, wantSummary] = toggle('要約見出しを作る');
+    const [translationRow, wantTranslation] = toggle('翻訳する（日本語以外の本文だけ）');
     const msg = el('p', { className: 'err' });
     const addBtn = el('button', { className: 'primary', type: 'button', textContent: '追加' });
     addBtn.addEventListener('click', async () => {
       addBtn.disabled = true;
       msg.textContent = '';
-      const res = await ask({ type: 'twimark-save', url, place: JSON.parse(select.value), text: text.value });
+      const res = await ask({ type: 'twimark-save', url, place: JSON.parse(select.value), text: text.value, wants: { summary: wantSummary.checked, translation: wantTranslation.checked } });
       if (panel !== frame) return;
       addBtn.disabled = false;
       if (res?.needText) { text.hidden = false; text.focus(); msg.textContent = '本文を貼り付けると追加できます。'; return; }
@@ -355,7 +365,7 @@
       show(el('p', { className: 'ok', textContent: res.already ? 'もう保存されています' : '追加しました' }));
       setTimeout(() => { if (panel === frame) closePanel(); }, 1000);
     });
-    show(select, text, msg, el('div', { className: 'row' }, addBtn));
+    show(select, text, summaryRow, translationRow, msg, el('div', { className: 'row' }, addBtn));
     select.focus();
   }
   // アクセントの地の上の文字。白と黒の読みやすいほう（shared/theme.js の accentSet と同じ決め方）
