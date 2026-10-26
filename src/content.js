@@ -1,13 +1,13 @@
 // X・note・Qiita の共有メニューと共有の並びに「Twimarkに追加」を足す。押すと background.js が追加の画面を開く。
-// 投稿・記事のブックマーク（にあたる）ボタンの隣にも、Twimark のアイコンを足す（下の「投稿・記事のアイコン」）。
+// 投稿・記事のブックマーク（にあたる）ボタンの隣にも、Twimark のアイコンを足す（下の「投稿・記事のアイコン」。X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！）。
 // 見た目を合わせるため、サイトの既存の項目を複製してラベルとアイコンだけを変える。見つからないときは何も足さない。
 // ほかの拡張と取り合わないよう、複製の元はメニューの最初の項目（サイトのもの。拡張は後ろに足す）にし、
 // 複製からは data-* の印（サイトの状態やほかの拡張の印）を外して、自分の印 data-twimark-item だけを付ける
 (() => {
   const LABEL = 'Twimarkに追加';
   const MARK = 'data-twimark-item';
-  // 複製に残す data-*（サイトの見た目に使うもの）
-  const KEPT_DATA = ['data-slot'];
+  // 複製に残す data-*（サイトの見た目に使うもの。data-size などは GitHub のボタンの大きさ）
+  const KEPT_DATA = ['data-slot', 'data-size', 'data-variant', 'data-component'];
   const SVG = 'http://www.w3.org/2000/svg';
   const X_STATUS = /^\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})/;
   const NOTE_PAGE = /^\/([A-Za-z0-9_-]{1,64})\/n\/(n[0-9a-z]{6,24})(?:\/|$)/;
@@ -214,9 +214,11 @@
     item.dataset.twimarkSaved = saved ? '1' : '';
   }
 
-  // 隣の項目（anchor）を複製してアイコンにする。数（いいねの数など）の文字は消す
-  function makeIcon(anchor, url) {
+  // 隣の項目（anchor）を複製してアイコンにする。文字（ラベル、いいねの数など）と吹き出しは消す。
+  // glyph は差し替える元の絵（ふりーむ！は img、unityroom は Font Awesome の <i> か、それを置き換えた svg）
+  function makeIcon(anchor, url, glyph = 'svg') {
     const item = anchor.cloneNode(true);
+    item.querySelectorAll('[role="tooltip"], .tooltip').forEach((n) => n.remove());
     for (const el of [item, ...item.querySelectorAll('*')]) {
       DROPPED.forEach((a) => el.removeAttribute(a));
       for (const { name } of [...el.attributes]) if (name.startsWith('data-') && !KEPT_DATA.includes(name)) el.removeAttribute(name);
@@ -227,12 +229,21 @@
     // 押せるものは最初の1つだけ残す（note の「スキ」の包みは、スキのボタンと数のボタンの2つを持つ）
     const control = item.matches('button, a') ? item : item.querySelector('button, a');
     for (const b of item.querySelectorAll('button, a')) if (b !== control && !b.contains(control)) b.remove();
-    const old = item.querySelector('svg');
+    const old = item.querySelector(glyph);
     const svg = mark(old ?? item);
+    // 元の絵が svg でなければ（img や <i>）、複製には大きさがないので、ページの上の元の絵の大きさに合わせる
+    const real = old && !(old instanceof SVGElement) && anchor.querySelector(glyph)?.getBoundingClientRect();
+    if (real?.width) {
+      const side = String(Math.round(Math.max(real.width, real.height)));
+      svg.setAttribute('width', side);
+      svg.setAttribute('height', side);
+    }
     svg.setAttribute('data-twimark-glyph', '');
     if (old) old.replaceWith(svg);
     else (item.querySelector('button, a') ?? item).prepend(svg);
-    for (const n of item.querySelectorAll('*')) if (!(n instanceof SVGElement) && n.children.length === 0 && n.textContent.trim()) n.textContent = '';
+    // 文字は要素の中で子と並んでいることもある（GitHub の「Star」と数）ので、文字のノードごとに消す
+    const texts = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    for (let t; (t = texts.nextNode());) if (!(t.parentNode instanceof SVGElement) && t.nodeValue.trim()) t.nodeValue = '';
     item.setAttribute(ICON, '');
     // 同じ投稿・記事のアイコンは1ページに複数ある（note は記事の上・下・帯）。追加したら全部を保存済みにするための印
     item.dataset.twimarkUrl = url;
@@ -242,6 +253,12 @@
       e.stopPropagation();
       openPanel(item, url);
     }, true);
+    // 押せる要素がなければ（ふりーむ！の <li>）、項目そのものをキーボードでも押せるボタンにする
+    if (!control) {
+      item.setAttribute('role', 'button');
+      item.tabIndex = 0;
+      item.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPanel(item, url); } });
+    }
     ask({ type: 'twimark-state', url }).then((s) => { if (s?.linked) paint(item, Boolean(s.saved)); });
     return item;
   }
@@ -350,13 +367,14 @@
   }
 
   // 置く。anchor の直後（before があればその直前）。重ねて置かない
-  function place(anchor, url, before = null) {
+  function place(anchor, url, before = null, glyph = 'svg') {
     if (!anchor?.parentElement || !url) return;
     const next = before ?? anchor.nextElementSibling;
     if (next?.hasAttribute?.(ICON) || anchor.parentElement.querySelector(`:scope > [${ICON}]`)) return;
-    const item = makeIcon(anchor, url);
+    const item = makeIcon(anchor, url, glyph);
     if (before) before.before(item);
     else anchor.after(item);
+    return item;
   }
 
   // X: ブックマークのボタン。新しい画面は data-engagement-action="bookmark" の包み、前の画面は data-testid="bookmark" のボタン（その親が並びの1つ）。
@@ -438,9 +456,45 @@
     }
   }
 
+  // GitHub: リポジトリの見出しの「Star」（新しい画面は data-testid="star-button"、スター済みは "unstar-button"。前の画面は .starring-container）の項目（<li>）の右
+  const GH_REPO = /^\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})/;
+  const githubUrl = pageUrl(GH_REPO, (m) => `https://github.com/${m[1]}/${m[2].replace(/\.git$/i, '')}`);
+  function iconsGithub() {
+    const url = githubUrl();
+    if (!url) return;
+    for (const b of document.querySelectorAll('[data-testid="star-button"], [data-testid="unstar-button"], .starring-container')) {
+      const li = b.closest('li');
+      // 文字を消したラベル（数の札を含む）は、余白が残らないよう外す
+      if (li && !b.closest(`[${ICON}]`)) place(li, url)?.querySelectorAll('[data-component="text"]').forEach((n) => n.remove());
+    }
+  }
+  // unityroom: ゲームの題の右の操作の並び（.game_actionArea）の末尾。ログインしていない表示は共有のボタン（.el_shareDropdown、絵は Font Awesome の <i>）だけ
+  const UR_GAME = /^\/games\/([A-Za-z0-9_-]{1,64})/;
+  const unityroomUrl = pageUrl(UR_GAME, (m) => `https://unityroom.com/games/${m[1]}`);
+  function iconsUnityroom() {
+    const url = unityroomUrl();
+    if (!url) return;
+    for (const area of document.querySelectorAll('.game_actionArea')) {
+      const last = [...area.children].filter((c) => !c.hasAttribute(ICON)).at(-1);
+      place(last, url, null, 'svg, i');
+    }
+  }
+  // ふりーむ！: ゲームのページの「マイリスト」（li.game-btn-favorite、絵は img）の右。並びのボタンは絵の下に名前（.btn-text）があるので「Twimark」と入れる
+  const FREEM_GAME = /^\/win\/game\/(\d{1,9})/;
+  const freemUrl = pageUrl(FREEM_GAME, (m) => `https://www.freem.ne.jp/win/game/${m[1]}`);
+  function iconsFreem() {
+    const url = freemUrl();
+    if (!url) return;
+    for (const li of document.querySelectorAll('li.game-btn-favorite')) {
+      const label = li.closest(`[${ICON}]`) ? null : place(li, url, null, 'img')?.querySelector('.btn-text');
+      if (label) label.textContent = 'Twimark';
+    }
+  }
+
   const host = location.hostname;
   const SHARE = { 'qiita.com': scanQiita, 'note.com': scanNote };
-  const ICONS = { 'qiita.com': iconsQiita, 'note.com': iconsNote, 'www.instagram.com': iconsInstagram, 'www.pixiv.net': iconsPixiv };
+  const ICONS = { 'qiita.com': iconsQiita, 'note.com': iconsNote, 'www.instagram.com': iconsInstagram, 'www.pixiv.net': iconsPixiv,
+    'github.com': iconsGithub, 'unityroom.com': iconsUnityroom, 'www.freem.ne.jp': iconsFreem };
   const isX = /(^|\.)(x|twitter)\.com$/.test(host);
   // 共有メニューへの「Twimarkに追加」は X・note・Qiita だけ
   const scanShare = SHARE[host] ?? (isX ? scanX : () => {});

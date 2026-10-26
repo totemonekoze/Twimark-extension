@@ -3,7 +3,7 @@ title: X・note・Qiitaの共有メニューの目印
 type: knowledge
 confidence: medium
 created: 2026-09-24
-last_verified: 2026-10-25
+last_verified: 2026-10-26
 ---
 
 # X・note・Qiitaの共有メニューとブックマークのボタンの目印
@@ -53,6 +53,22 @@ last_verified: 2026-10-25
 
 - ログインしていない表示には、商品そのものの「スキ」がない（あるのは「カートに入れる」「ギフトとして贈る」）。
 - 「スキ！」は関連商品の札（`li.item-card` の中の `.js-item-card-wish-list-button`、`data-item-id` はその商品）にだけある。Twimark のボタンは、札の外の「スキ」を含むボタンにだけ置く（ログインした表示の目印は、利用者の確認で足す）。
+
+## GitHub（2026-10-26、ログインしていない表示のリポジトリ）
+
+- 見出しの右の並びは `<ul>` の `<li>` の並び（Notifications・Fork・Star）。Star は `a[data-testid="star-button"]`（Primer の `prc-Button-*`、`data-size="small"`）で、ラベル `[data-component="text"]` の中に「Star」の文字と数の札が並ぶ。吹き出しは隣の `span[role="tooltip"]`。
+- Twimark のボタンは Star の `<li>` を複製して右に置く。大きさは `data-size`・`data-variant`・`data-component` で決まるので、複製に残す（外すと高さ 32・幅が広くなった）。文字を消したラベルは外す。
+- ログインした表示（スター済みは `unstar-button`、前の画面の `.starring-container`）は確かめていない。
+
+## unityroom（2026-10-26、ログインしていない表示のゲームのページ）
+
+- 題の右の操作の並びは `.game_actionArea`。ログインしていない表示には共有のボタン（`.el_shareDropdown` の `button`、絵は Font Awesome の `<i class="fas fa-share-alt">`）だけで、「いいね」「お気に入り」はない。Twimark のボタンは並びの末尾の項目を複製して右に置き、`<i>`（Font Awesome が svg に置き換えていれば svg）を絵に替える。
+- ログインした表示の目印は確かめていない。
+
+## ふりーむ！（2026-10-26、ゲームのページ）
+
+- 操作の並びは `li.col` の並び（いいね・サポート・マイリスト・シェア）。「マイリスト」は `li.game-btn-favorite`（絵は `.btn-ico` の `img`、名前は `.btn-text`、`.tooltip` の吹き出しにリンク）。押せる要素（`a`・`button`）は吹き出しの中にしかない。
+- Twimark のボタンは `li.game-btn-favorite` を複製して右に置き、`img` を絵に替え、`.btn-text` を「Twimark」にする。吹き出しは外し、`li` そのものを `role="button"`・`tabindex="0"` にする。英語の表示では名前が「Wishlist」。
 
 ## 確かめ方
 

@@ -53,6 +53,22 @@
         </form>
       </section>
 
+      <!-- 対応していないページでは、そのページを控えるメモの追加の画面 -->
+      <section data-memo hidden>
+        <h1>メモを追加</h1>
+        <form data-memo-form>
+          <label>題<input class="d-input" name="title" maxlength="80" autocomplete="off" /></label>
+          <label>本文<textarea class="d-input" name="text" rows="5" maxlength="5000"></textarea></label>
+          <label>URL（なくてもよい）<input class="d-input" name="url" type="url" maxlength="500" autocomplete="off" /></label>
+          <label>カテゴリ<select class="d-input" name="category" required data-memo-category></select></label>
+          <p class="msg" role="status" data-memo-status></p>
+          <div class="actions">
+            <button type="button" class="d-btn" data-memo-close>閉じる</button>
+            <button type="submit" class="d-btn primary" data-memo-submit disabled>メモを追加</button>
+          </div>
+        </form>
+      </section>
+
       <p class="foot muted"><span data-who></span> <span data-version></span> · <a href="options.html" target="_blank" data-options>設定</a></p>
     </main>
   </body>

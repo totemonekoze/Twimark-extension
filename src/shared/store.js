@@ -8,7 +8,7 @@ export const DEFAULT_CATEGORIES = ['新しいカテゴリ'];
 // memoTitle は独立のメモの題、note はブックマークへの書き添え
 export const LIMITS = { category: 20, categories: 30, subcategories: 30, text: 5000, memoTitle: 80, note: 2000 };
 // memo は独立のメモ（URL のないこともあるカード）。ほかは追加できるサイト
-export const SITES = { x: 'X', note: 'note', qiita: 'Qiita', instagram: 'Instagram', pixiv: 'pixiv', booth: 'BOOTH', memo: 'メモ' };
+export const SITES = { x: 'X', note: 'note', qiita: 'Qiita', instagram: 'Instagram', pixiv: 'pixiv', booth: 'BOOTH', github: 'GitHub', unityroom: 'unityroom', freem: 'ふりーむ！', memo: 'メモ' };
 export const PUBLIC_URL = 'https://twimark.ho-service.workers.dev';
 
 // アプリへのログインの受け渡し（?app=）の戻り先として受け付けるもの。
@@ -104,6 +104,10 @@ export const ops = {
   // 独立のメモの題・本文・URL を直す（メモだけ）。ブックマークへの書き添えを書く（空で消す）
   editMemo: (id, fields) => ({ op: 'editMemo', args: [id, fields] }),
   setNote: (id, note) => ({ op: 'setNote', args: [id, note] }),
+  // 翻訳と要約見出し（Workers AI）。1件の足りない分を作る・選んだ5件までを作る・要約見出しをカードに出すか
+  refreshAi: (id) => ({ op: 'refreshAi', args: [id] }),
+  fillAi: (ids) => ({ op: 'fillAi', args: [ids] }),
+  setSummaryOn: (id, on) => ({ op: 'setSummaryOn', args: [id, on] }),
 };
 
 // 独立のメモの id（memo: と 16 桁の乱数）。利用者の中で重ならなければよいので Math.random（アプリの Hermes には crypto がないことがある）
@@ -117,12 +121,16 @@ async function failure(res) {
   return new StoreError('http', `Twimark がエラーを返しました（${res.status}）。`);
 }
 
+// Workers AI を待つ操作（追加は翻訳と要約見出しを作ってから返す。1回 15 秒まで、fillAi は5件で2回ずつ）は、打ち切りまでを長くする
+const SLOW_OPS = new Set(['add', 'refreshAi', 'fillAi']);
+const SLOW_WAIT = 180_000;
+
 // base は Twimark の URL（一覧の画面は同じオリジンなので空）。token があれば Bearer で送り、なければ Cookie を使う。
 // timeout ミリ秒たっても応答（本文まで）が来なければ打ち切り、timeout の StoreError にする（いつまでも待たない）
 export function createStore({ base = '', token = '', timeout = 20_000 } = {}, fetchImpl = fetch) {
-  async function call(path, { method = 'GET', body } = {}) {
+  async function call(path, { method = 'GET', body, wait = timeout } = {}) {
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), timeout);
+    const timer = setTimeout(() => abort.abort(), wait);
     try {
       let res;
       try {
@@ -154,6 +162,6 @@ export function createStore({ base = '', token = '', timeout = 20_000 } = {}, fe
     call,
     load: async () => ({ data: normalize(await call('/api/data')) }),
     // op は ops のどれかが返す { op, args }。成功したら操作のあとのデータを返す
-    update: async (op) => normalize(await call('/api/ops', { method: 'POST', body: op })),
+    update: async (op) => normalize(await call('/api/ops', { method: 'POST', body: op, wait: SLOW_OPS.has(op?.op) ? SLOW_WAIT : timeout })),
   };
 }

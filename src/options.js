@@ -1,6 +1,9 @@
-// 拡張の設定。アカウントのカード（結んだ ID、接続の確認、ログアウト）、ボタンを出すサイト、予備のトークンの貼り付け。覚える内容は account.js
-import { createStore, describeError, PUBLIC_URL } from './shared/store.js';
+// 拡張の設定。アカウントのカード（結んだ ID、接続の確認、ログアウト）、対応しているサイト、ボタンを出すサイト、予備のトークンの貼り付け。覚える内容は account.js
+import { createStore, describeError, PUBLIC_URL, SITES } from './shared/store.js';
 import { linkWithToken, loadSettings, logout } from './account.js';
+
+// 対応しているサイトは SITES から作る（サイトが増えても直さなくてよい）。メモはサイトではないので除く
+document.querySelector('[data-supported]').replaceChildren(...Object.entries(SITES).filter(([key]) => key !== 'memo').map(([, name]) => Object.assign(document.createElement('li'), { textContent: name })));
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('[data-status]');

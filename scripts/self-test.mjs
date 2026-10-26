@@ -85,14 +85,33 @@ test('拡張: manifest の参照とページの import が、すべて src の�
 });
 // ---- 定義 2026-10-24-003（投稿・記事のブックマークのアイコン） ----
 // 定義 2026-10-25-009 で、対象に Instagram・pixiv・BOOTH を足した。版は 2026-10-25-010 で 0.6.1、その追記で 0.6.2、そのレビューの差し戻しで 0.6.3 に
-test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH だけ。アイコンの絵が4つあり、版は 0.6.3', () => {
+// 定義 2026-10-26-002 で GitHub・unityroom・ふりーむ！を足し、006（メモの追加）と合わせて版を 0.7.0 に
+test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！だけ。アイコンの絵が4つあり、版は 0.7.0', () => {
   const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
   const content = manifest.content_scripts.find((s) => s.js.includes('content.js'));
-  for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm)\/\*$/, m);
-  for (const site of ['x.com', 'note.com', 'qiita.com', 'www.instagram.com', 'www.pixiv.net', 'booth.pm']) assert.ok(content.matches.includes(`https://${site}/*`), site);
+  for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm|github\.com|unityroom\.com|www\.freem\.ne\.jp)\/\*$/, m);
+  for (const site of ['x.com', 'note.com', 'qiita.com', 'www.instagram.com', 'www.pixiv.net', 'booth.pm', 'github.com', 'unityroom.com', 'www.freem.ne.jp']) {
+    assert.ok(content.matches.includes(`https://${site}/*`), site);
+    // 拡張が下見を自分で取るので、取得先のホストも許す
+    if (site !== 'x.com') assert.ok(manifest.host_permissions.includes(`https://${site}/*`), `host_permissions: ${site}`);
+  }
   assert.deepEqual(Object.keys(manifest.icons), ['16', '32', '48', '128']);
   for (const p of Object.values(manifest.icons)) assert.ok(existsSync(new URL(`../src/${p}`, import.meta.url)), p);
-  assert.equal(manifest.version, '0.6.3');
+  assert.equal(manifest.version, '0.7.0');
+});
+test('拡張: GitHub・unityroom・ふりーむ！のボタンの目印と URL の形。右クリックの対象にもある', () => {
+  const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
+  for (const sel of ['[data-testid="star-button"], [data-testid="unstar-button"], .starring-container', '.game_actionArea', 'li.game-btn-favorite',
+    "'github.com': iconsGithub, 'unityroom.com': iconsUnityroom, 'www.freem.ne.jp': iconsFreem", "[role=\"tooltip\"], .tooltip", "'data-size', 'data-variant', 'data-component'"]) assert.ok(js.includes(sel), sel);
+  // content.js が作る URL は parseUrl が受ける正規の形
+  for (const [re, path, url] of [[/const GH_REPO = (\/.+\/);/, '/cloudflare/workers-sdk/tree/main', 'https://github.com/cloudflare/workers-sdk'],
+    [/const UR_GAME = (\/.+\/);/, '/games/bozucrane/webgl', 'https://unityroom.com/games/bozucrane'], [/const FREEM_GAME = (\/.+\/);/, '/win/game/12083', 'https://www.freem.ne.jp/win/game/12083']]) {
+    const source = js.match(re)[1];
+    assert.ok(new RegExp(source.slice(1, -1)).test(path), path);
+    assert.equal(parseUrl(url)?.url, url);
+  }
+  const bg = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
+  for (const p of ["'https://github.com/*/*'", "'https://unityroom.com/games/*'", "'https://www.freem.ne.jp/win/game/*'"]) assert.ok(bg.includes(p), p);
 });
 test('拡張: bookmarkOf はポップアップと小さな画面で同じブックマークを作る（取れなければ貼り付けの本文）', async () => {
   const { bookmarkOf } = await import('../src/bookmark.js');
@@ -139,12 +158,23 @@ test('拡張: Instagram・pixiv・BOOTH の目印と、計測の印を外すこ�
   const css = readFileSync(new URL('../src/content.css', import.meta.url), 'utf8');
   assert.ok(css.includes('[data-twimark-row] { display: flex;'));
 });
-test('拡張: 対応していないページの文は改行した決まった文で、設定の画面は options.js の指す data-* をすべて持つ', () => {
+// 定義 2026-10-26-006: 対応していないページは、文の代わりにメモの追加の画面。対応しているサイトは設定の画面に SITES から出す
+test('拡張: 対応していないページではメモの追加の画面を出し、設定の画面は対応しているサイトを SITES から作り、options.js の指す data-* をすべて持つ', () => {
   const popup = readFileSync(new URL('../src/popup.js', import.meta.url), 'utf8');
-  assert.ok(popup.includes('const UNSUPPORTED = `このページは追加できません。\n対応しているサイトは以下です。\n・X\n・Instagram\n・note\n・Qiita\n・pixiv\n・BOOTH`;'.replace(/\n/g, popup.includes('\r\n') ? '\r\n' : '\n')));
+  const popupHtml = readFileSync(new URL('../src/popup.html', import.meta.url), 'utf8');
+  assert.ok(!popup.includes('UNSUPPORTED') && !popup.includes('このページは追加できません'));
+  assert.match(popup, /ops\.add\(\{ site: 'memo', id: memoId\(\), title: field\('title'\)\.value, text: field\('text'\)\.value, url, category, subcategory \}\)/);
+  // URL は https で、Worker が受ける 500 文字までのときだけ入れておく（レビュー）
+  assert.match(popup, /field\('url'\)\.value = \/\^https:\\\/\\\/\/\.test\(target\.url\) && target\.url\.length <= 500 \? target\.url : '';/);
+  assert.match(popupHtml, /name="url" type="url" maxlength="500"/);
+  for (const [, name] of popup.matchAll(/\$\('\[(data-[a-z-]+)/g)) assert.ok(popupHtml.includes(name), `popup.html: ${name}`);
+  assert.match(popupHtml, /name="title" maxlength="80"/);
+  assert.match(popupHtml, /name="text" rows="5" maxlength="5000"/);
   assert.ok(readFileSync(new URL('../src/popup.css', import.meta.url), 'utf8').includes('.msg { white-space: pre-line; }'));
   const html = readFileSync(new URL('../src/options.html', import.meta.url), 'utf8');
   const js = readFileSync(new URL('../src/options.js', import.meta.url), 'utf8');
+  assert.match(js, /Object\.entries\(SITES\)\.filter\(\(\[key\]\) => key !== 'memo'\)/);
+  assert.ok(html.includes('data-supported') && html.includes('ほかのページでは、ボタンを押すとメモの追加になります。'));
   for (const [, name] of js.matchAll(/\$\('\[(data-[a-z-]+)/g)) assert.ok(html.includes(name), name);
   assert.match(html, /<link rel="stylesheet" href="options\.css" \/>/);
   assert.doesNotMatch(html, /<style/);

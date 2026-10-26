@@ -13,6 +13,8 @@ const TARGETS = [
   'https://note.com/*/n/*', 'https://qiita.com/*/items/*',
   'https://www.instagram.com/p/*', 'https://www.instagram.com/reel/*', 'https://www.instagram.com/*/p/*', 'https://instagram.com/p/*', 'https://instagram.com/reel/*',
   'https://www.pixiv.net/artworks/*', 'https://www.pixiv.net/*/artworks/*', 'https://pixiv.net/artworks/*', 'https://pixiv.net/*/artworks/*', 'https://booth.pm/*/items/*', 'https://*.booth.pm/items/*',
+  // GitHub は予約の名前（settings など）も当たるが、そのページではポップアップがメモの追加になる
+  'https://github.com/*/*', 'https://www.github.com/*/*', 'https://unityroom.com/games/*', 'https://www.freem.ne.jp/win/game/*', 'https://freem.ne.jp/win/game/*',
 ];
 const FRESH = 5 * 60 * 1000;
 

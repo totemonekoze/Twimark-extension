@@ -1,5 +1,5 @@
 // Twimark（アプリ）の src/shared/meta.js の写し。正本はアプリ側。アプリで変えたら写し直す（AGENTS.md）
-// 追加できるURLの判定と、保存する項目の取得。X は fxtwitter、note・Qiita・Instagram・pixiv・BOOTH はページのHTMLの JSON-LD と OGP から取る。
+// 追加できるURLの判定と、保存する項目の取得。X は fxtwitter、note・Qiita・Instagram・pixiv・BOOTH・GitHub・unityroom・ふりーむ！はページのHTMLの JSON-LD と OGP から取る。
 // HTML は正規表現で <meta> と JSON-LD だけを読む（DOMParser のない環境とテストでも同じに動くように）。
 
 const TEXT_MAX = 5000;
@@ -11,6 +11,14 @@ const QIITA = /^https:\/\/qiita\.com\/([A-Za-z0-9_-]{1,64})\/items\/([0-9a-f]{20
 const INSTAGRAM = /^https:\/\/(?:www\.)?instagram\.com\/(?:([A-Za-z0-9_.]{1,30})\/)?(?:p|reel)\/([A-Za-z0-9_-]{5,40})\/?(?:[?#].*)?$/;
 const PIXIV = /^https:\/\/(?:www\.)?pixiv\.net\/(?:[a-z]{2}\/)?artworks\/(\d{1,12})\/?(?:[?#].*)?$/;
 const BOOTH = /^https:\/\/(?:booth\.pm\/[a-z]{2}(?:-[a-z]{2})?|([a-z0-9-]{1,40})\.booth\.pm)\/items\/(\d{1,12})\/?(?:[?#].*)?$/;
+// GitHub のリポジトリ（下のパスも受け、最上位に直す）、unityroom のゲーム、ふりーむ！のゲーム
+const GITHUB = /^https:\/\/(?:www\.)?github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100})(?:[/?#].*)?$/;
+// GitHub の予約の名前（ユーザーやリポジトリではないページ）
+const GITHUB_RESERVED = new Set(['about', 'account', 'apps', 'codespaces', 'collections', 'contact', 'customer-stories', 'dashboard', 'enterprise', 'events', 'explore', 'features',
+  'issues', 'join', 'login', 'logout', 'marketplace', 'new', 'notifications', 'orgs', 'organizations', 'pricing', 'pulls', 'readme', 'search', 'security', 'sessions',
+  'settings', 'signup', 'site', 'solutions', 'sponsors', 'stars', 'team', 'topics', 'trending', 'users']);
+const UNITYROOM = /^https:\/\/unityroom\.com\/games\/([A-Za-z0-9_-]{1,64})(?:[/?#].*)?$/;
+const FREEM = /^https:\/\/(?:www\.)?freem\.ne\.jp\/win\/game\/(\d{1,9})\/?(?:[?#].*)?$/;
 
 // { site, id, url, handle } か null。url はクエリなどを除いた保存用の形
 export function parseUrl(raw) {
@@ -23,6 +31,14 @@ export function parseUrl(raw) {
   if ((m = url.match(INSTAGRAM)) && !['p', 'reel'].includes(m[1])) return { site: 'instagram', id: `instagram:${m[2]}`, key: m[2], handle: m[1] ?? null, url: `https://www.instagram.com/p/${m[2]}/` };
   if ((m = url.match(PIXIV))) return { site: 'pixiv', id: `pixiv:${m[1]}`, key: m[1], handle: null, url: `https://www.pixiv.net/artworks/${m[1]}` };
   if ((m = url.match(BOOTH)) && m[1] !== 'www') return { site: 'booth', id: `booth:${m[2]}`, key: m[2], handle: m[1] ?? null, url: `https://booth.pm/ja/items/${m[2]}` };
+  if ((m = url.match(GITHUB)) && !GITHUB_RESERVED.has(m[1].toLowerCase())) {
+    const repo = m[2].replace(/\.git$/i, '');
+    if (!repo || repo === '.' || repo === '..') return null;
+    const key = `${m[1]}/${repo}`;
+    return { site: 'github', id: `github:${key.toLowerCase()}`, key, handle: m[1], url: `https://github.com/${key}` };
+  }
+  if ((m = url.match(UNITYROOM))) return { site: 'unityroom', id: `unityroom:${m[1]}`, key: m[1], handle: null, url: `https://unityroom.com/games/${m[1]}` };
+  if ((m = url.match(FREEM))) return { site: 'freem', id: `freem:${m[1]}`, key: m[1], handle: null, url: `https://www.freem.ne.jp/win/game/${m[1]}` };
   return null;
 }
 
@@ -89,14 +105,32 @@ export function extractArticle(html, parsed) {
   const date = insta ? Date.parse(`${insta[2]} UTC`) : published;
   const handle = (insta && insta[1]) || parsed.handle || '';
   const instaName = insta && (meta['og:title'] ?? '').match(/^(.+?) on Instagram/)?.[1];
-  return {
+  const item = {
     author: { name: instaName || (typeof author?.name === 'string' && author.name ? author.name : handle), handle },
     postedAt: Number.isNaN(date) ? null : new Date(date).toISOString(),
     title: insta ? '' : title.trim(),
-    text: (insta ? insta[3] : meta['og:description'] ?? meta.description ?? '').trim().slice(0, TEXT_MAX),
+    text: (insta ? insta[3] : meta['og:description'] ?? meta.description ?? '').replace(/\r\n?/g, '\n').trim().slice(0, TEXT_MAX),
     photos: /^https:\/\//.test(image) ? [{ url: image }] : [],
     videos: [],
   };
+  // GitHub の og:title は「GitHub - owner/repo: 説明」。題を owner/repo、本文を説明にする（og:description は説明の後ろに決まり文句が付く）
+  if (parsed.site === 'github') {
+    const g = item.title.match(/^GitHub - ([^\s:]+\/[^\s:]+)(?::\s*([\s\S]*))?$/);
+    if (g) Object.assign(item, { title: g[1], text: (g[2] ?? '').trim().slice(0, TEXT_MAX) });
+  }
+  // unityroom・ふりーむ！は、作者をページの作者の欄から取る（unityroom は画像の alt と /users/<ID>、ふりーむ！は /brand/<数字> のリンクの文字）。
+  // ふりーむ！の題の後ろと本文の前の決まり文句は外す
+  if (parsed.site === 'unityroom') {
+    const by = html.match(/class="game_author"[\s\S]{0,400}?href="\/users\/([A-Za-z0-9_-]{1,64})"[\s\S]{0,400}?\balt="([^"]{1,100})"/);
+    if (by) item.author = { name: decodeEntities(by[2]).trim(), handle: by[1] };
+  }
+  if (parsed.site === 'freem') {
+    const by = html.match(/class="game-creator-name[\s\S]{0,800}?<a\b[^>]*href="\/brand\/\d+"[^>]*>([^<]{1,100})<\/a>/);
+    if (by) item.author = { name: decodeEntities(by[1]).trim(), handle: '' };
+    item.title = item.title.replace(/：無料ゲーム配信中！\s*\[ふりーむ！\]$/, '');
+    item.text = item.text.replace(/^「[^」\n]*」：/, '');
+  }
+  return item;
 }
 
 // pixiv の作品の絵の URL（ajax の urls.regular）。i.pximg.net は pixiv の Referer がないと読めないので、カードは /api/thumb を通して出す
