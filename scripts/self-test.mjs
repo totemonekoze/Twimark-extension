@@ -83,15 +83,15 @@ test('拡張: manifest の参照とページの import が、すべて src の�
   }
 });
 // ---- 定義 2026-10-24-003（投稿・記事のブックマークのアイコン） ----
-// 定義 2026-10-25-009 で、対象に Instagram・pixiv・BOOTH を足した。版は 2026-10-25-010 で 0.6.1、その追記で 0.6.2 に
-test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH だけ。アイコンの絵が4つあり、版は 0.6.2', () => {
+// 定義 2026-10-25-009 で、対象に Instagram・pixiv・BOOTH を足した。版は 2026-10-25-010 で 0.6.1、その追記で 0.6.2、そのレビューの差し戻しで 0.6.3 に
+test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH だけ。アイコンの絵が4つあり、版は 0.6.3', () => {
   const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
   const content = manifest.content_scripts.find((s) => s.js.includes('content.js'));
   for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm)\/\*$/, m);
   for (const site of ['x.com', 'note.com', 'qiita.com', 'www.instagram.com', 'www.pixiv.net', 'booth.pm']) assert.ok(content.matches.includes(`https://${site}/*`), site);
   assert.deepEqual(Object.keys(manifest.icons), ['16', '32', '48', '128']);
   for (const p of Object.values(manifest.icons)) assert.ok(existsSync(new URL(`../src/${p}`, import.meta.url)), p);
-  assert.equal(manifest.version, '0.6.2');
+  assert.equal(manifest.version, '0.6.3');
 });
 test('拡張: bookmarkOf はポップアップと小さな画面で同じブックマークを作る（取れなければ貼り付けの本文）', async () => {
   const { bookmarkOf } = await import('../src/bookmark.js');

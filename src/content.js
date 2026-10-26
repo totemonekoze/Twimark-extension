@@ -172,7 +172,7 @@
     }
   };
 
-  // ページのボタンの絵（design/icon/make-mark.jsx が Illustrator で描いて書き出した icons/mark.svg・mark-saved.svg の座標）。
+  // ページのボタンの絵（design/make-mark.jsx が Illustrator で描いて書き出した icons/mark.svg・mark-saved.svg の座標）。
   // サイトのしおりと見分けるため、Twimark の T を角丸の四角に入れる。未保存は黄緑の輪郭と T、保存済みは黄緑の地に白の T（色はサイトに合わせず固定）
   const T_POINTS = '7.5 7 16.5 7 16.5 9.6 13.3 9.6 13.3 17 10.7 17 10.7 9.6 7.5 9.6 7.5 7';
   const node = (tag, attrs, ...kids) => {

@@ -121,7 +121,9 @@ export async function fetchMeta(parsed, fetchImpl = fetch, timeout = 8_000) {
       const item = res.ok ? extractTweet(await res.json()) : null;
       return item && { ...item, url: `https://x.com/${item.author.handle}/status/${parsed.key}` };
     }
-    const res = await fetchImpl(parsed.url, { credentials: 'omit', signal: abort.signal });
+    // Instagram は Accept-Language で OGP の形を変え、extractArticle は英語の形だけを読む。拡張はブラウザーの言語（日本語）で取るので英語に固定する（定義 2026-10-25-010 のレビュー）
+    const headers = parsed.site === 'instagram' ? { 'accept-language': 'en' } : {};
+    const res = await fetchImpl(parsed.url, { credentials: 'omit', signal: abort.signal, headers });
     const item = res.ok ? extractArticle(await res.text(), parsed) : null;
     if (item && parsed.site === 'pixiv' && !item.photos.length) item.photos = await pixivImage(parsed, fetchImpl, abort.signal);
     return item && { ...item, url: parsed.url };
