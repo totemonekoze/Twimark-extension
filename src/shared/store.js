@@ -110,6 +110,8 @@ export const ops = {
   // kinds は { summary, translation }（作る方を真。なければ両方）
   fillAi: (ids, kinds) => ({ op: 'fillAi', args: kinds === undefined ? [ids] : [ids, kinds] }),
   setSummaryOn: (id, on) => ({ op: 'setSummaryOn', args: [id, on] }),
+  // 利用者が書く要約見出し（2行・40文字まで。null か空で消す）。add の bookmark にも summary を付けられる
+  setSummary: (id, summary) => ({ op: 'setSummary', args: [id, summary] }),
   // 要約見出しを作るか・翻訳するか。wants は { wantSummary?, wantTranslation? }（渡した方だけ変える）
   setAiWants: (id, wants) => ({ op: 'setAiWants', args: [id, wants] }),
 };

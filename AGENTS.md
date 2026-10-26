@@ -11,6 +11,7 @@
 - ソース=`src`（そのまま読み込める拡張）、配る zip=`release`（Git に入れない）
 - `src/shared/` は Twimark（アプリ）の `src/shared` の `meta.js`・`store.js`・`theme.js` の写し。正本はアプリ側。アプリでこれらを変えたら、ここに写し直し（先頭の1行の印は残す）、`node scripts/self-test.mjs` を通す。ここで直すときは、アプリの正本を先に直す
 - 依存パッケージは持たない
+- 利用者に見える変化を入れたら、Twimark（アプリ）の `src/shared/updates.js`（設定の「アップデート履歴」）に、頭に「拡張 <版>：」を付けて1文足す
 
 ## このプロジェクトの制約
 
