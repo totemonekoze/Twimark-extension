@@ -288,6 +288,14 @@
     button:disabled { opacity: .5; cursor: default; }
     .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; }
     .toggle input { margin: 0; accent-color: var(--accent); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .suggest { display: grid; gap: 4px; }
+    .chips[hidden], .row[hidden], p[hidden], .suggest[hidden], button[hidden] { display: none; }
+    .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-weight: 400; font-size: 13px; }
+    .chip[aria-pressed="true"] { background: var(--accent); color: var(--on); font-weight: 600; }
+    .chip .tag { font-size: 11px; font-weight: 700; opacity: .8; }
+    .row.start { justify-content: flex-start; }
+    .row.new input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid rgb(127 127 127 / .4); border-radius: 8px; font: inherit; background: Field; color: FieldText; }
     .x { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: none; font-size: 18px; line-height: 1; }
   `;
   const el = (tag, props = {}, ...kids) => {
@@ -340,8 +348,73 @@
     const select = el('select');
     select.setAttribute('aria-label', 'カテゴリ');
     const option = (c, sub, label) => el('option', { value: JSON.stringify([c, sub]), textContent: label });
-    select.append(...s.categories.map((c) => el('optgroup', { label: c }, option(c, null, c), ...(s.subcategories[c] ?? []).map((sub) => option(c, sub, `${c} › ${sub}`)))));
-    if ([...select.options].some((o) => o.value === s.lastPlace)) select.value = s.lastPlace;
+    const fill = (state, value) => {
+      select.replaceChildren(...state.categories.map((c) => el('optgroup', { label: c }, option(c, null, c), ...(state.subcategories[c] ?? []).map((sub) => option(c, sub, `${c} › ${sub}`)))));
+      if ([...select.options].some((o) => o.value === value)) select.value = value;
+    };
+    fill(s, s.lastPlace);
+    // おすすめの札・選んだ理由・その場で作るボタン（Twimark の定義 2026-10-31-001）。初期の選択と札は background.js の state が決める
+    const reason = el('p', { className: 'muted', hidden: true });
+    const chips = el('div', { className: 'chips' });
+    const suggestPart = el('div', { className: 'suggest' }, el('span', { className: 'muted', textContent: 'おすすめ' }), chips);
+    // 「＋ サブカテゴリ」（作れるときだけ）。今選んでいるカテゴリに作るので、カテゴリが1つもなければ出さない
+    let subButton = null;
+    const paintSub = () => { if (subButton) subButton.hidden = !select.value; };
+    const pick = (p, why = '') => {
+      select.value = JSON.stringify([p.category, p.subcategory ?? null]);
+      reason.textContent = why;
+      reason.hidden = !why;
+      paintChips();
+    };
+    function paintChips() {
+      paintSub();
+      suggestPart.hidden = !s.suggest?.length;
+      chips.replaceChildren(...(s.suggest ?? []).map((p) => {
+        const b = el('button', { type: 'button', className: 'chip' });
+        b.setAttribute('aria-pressed', String(select.value === JSON.stringify([p.category, p.subcategory ?? null])));
+        if (p.by === 'rule') b.append(el('span', { className: 'tag', textContent: 'ルール' }));
+        b.append(p.subcategory ? `${p.category} › ${p.subcategory}` : p.category);
+        b.addEventListener('click', () => pick(p));
+        return b;
+      }));
+    }
+    if (s.initial) pick(s.initial, s.initial.reason);
+    else paintChips();
+    select.addEventListener('change', () => { reason.hidden = true; paintChips(); });
+    const nameField = el('input', { maxLength: 20, autocomplete: 'off' });
+    nameField.setAttribute('aria-label', '名前');
+    const newForm = el('div', { className: 'row new', hidden: true }, nameField);
+    let kind = 'category';
+    const newButton = (k, label) => {
+      const b = el('button', { type: 'button', textContent: label });
+      b.addEventListener('click', () => {
+        kind = k;
+        nameField.placeholder = k === 'category' ? '新しいカテゴリの名前' : `「${JSON.parse(select.value)[0]}」の新しいサブカテゴリ`;
+        newForm.hidden = false;
+        nameField.focus();
+      });
+      return b;
+    };
+    const make = async () => {
+      msg.textContent = '';
+      // カテゴリを作るときは選択を読まない（カテゴリが1つもないと選択が空のため）
+      const res = await ask({ type: 'twimark-create', kind, category: kind === 'subcategory' ? JSON.parse(select.value)[0] : null, name: nameField.value, url });
+      if (panel !== frame) return;
+      if (!res?.created) { msg.textContent = res?.error ?? '作れませんでした。'; return; }
+      Object.assign(s, res);
+      fill(s, '');
+      nameField.value = '';
+      newForm.hidden = true;
+      pick({ category: res.created[0], subcategory: res.created[1] });
+    };
+    const makeBtn = el('button', { type: 'button', className: 'primary', textContent: '作る' });
+    makeBtn.addEventListener('click', make);
+    nameField.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); make(); } });
+    newForm.append(makeBtn);
+    subButton = s.addCreate === 'both' ? newButton('subcategory', '＋ サブカテゴリ') : null;
+    paintSub();
+    const creates = s.addCreate === 'none' ? [] : [newButton('category', '＋ カテゴリ'), ...(subButton ? [subButton] : [])];
+    const createRow = el('div', { className: 'row start' }, ...creates);
     const text = el('textarea', { hidden: true, placeholder: '本文を取得できませんでした。貼り付けてください', maxLength: 5000 });
     // 要約見出しを作る・翻訳する（開くたびに両方 ON）
     const toggle = (label) => {
@@ -365,7 +438,7 @@
       show(el('p', { className: 'ok', textContent: res.already ? 'もう保存されています' : '追加しました' }));
       setTimeout(() => { if (panel === frame) closePanel(); }, 1000);
     });
-    show(select, text, summaryRow, translationRow, msg, el('div', { className: 'row' }, addBtn));
+    show(suggestPart, select, reason, ...(creates.length ? [createRow, newForm] : []), text, summaryRow, translationRow, msg, el('div', { className: 'row' }, addBtn));
     select.focus();
   }
   // アクセントの地の上の文字。白と黒の読みやすいほう（shared/theme.js の accentSet と同じ決め方）

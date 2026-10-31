@@ -1,8 +1,9 @@
 // 拡張のポップアップ。まだ Twimark と結んでいなければ、最初にログインの画面を出す（ID とパスワード、Twimark の画面での受け渡し、予備のトークン）。
 // 結んでいれば追加の画面。ツールバーのボタンでは開いているタブのURL、右クリックと共有メニューからは ?url= のURLを追加する。
 // 追加できないページでは、そのページを控える独立のメモの追加の画面（題はタブの題、URL は https のときだけ入れておく）。
-// 保存先は Twimark の Worker（PUBLIC_URL）で、覚えた拡張のトークンで認証する。問い合わせの間は経った秒数を出し、失敗したらエラーコードを出す
-import { createStore, describeError, memoId, ops, SITES, PUBLIC_URL } from './shared/store.js';
+// 保存先は Twimark の Worker（PUBLIC_URL）で、覚えた拡張のトークンで認証する。問い合わせの間は経った秒数を出し、失敗したらエラーコードを出す。
+// 追加の画面には、おすすめの札と、その場で新しいカテゴリ・サブカテゴリを作るボタンを出す（Twimark の定義 2026-10-31-001）
+import { createStore, describeError, initialPlace, memoId, ops, PLACE_REASONS, SITES, PUBLIC_URL, suggestPlaces } from './shared/store.js';
 import { parseUrl, fetchMeta } from './shared/meta.js';
 import { clearSettings, hostAllowed, linkWithToken, loadSettings, loginWithPassword, openLinkPage } from './account.js';
 import { bookmarkOf } from './bookmark.js';
@@ -103,6 +104,63 @@ function fillCategories(target, data, lastPlace) {
   }));
   if ([...target.options].some((o) => o.value === lastPlace)) target.value = lastPlace;
 }
+// おすすめの札・初期の選択・その場で作るボタン。facts は suggestPlaces に渡す中身（URL・サイト・作者・題・本文）。
+// 初期の選択は、自動整理のルール（ON のとき）、おすすめの一番（「おすすめを最初から選ぶ」が ON のとき）、前回の組の順。自分で選んだら当て直さない
+const placeValue = (p) => JSON.stringify([p.category, p.subcategory ?? null]);
+function setupPlaces(store, data, facts) {
+  const reason = $('[data-reason]');
+  const pick = (p, why = '') => { select.value = placeValue(p); reason.textContent = why; reason.hidden = !why; paint(); };
+  const initial = initialPlace(data, facts);
+  if (initial) pick(initial, PLACE_REASONS[initial.by]);
+  select.onchange = () => { const [category, subcategory] = JSON.parse(select.value); pick({ category, subcategory }); };
+  function paint() {
+    const suggest = suggestPlaces(data, facts);
+    $('[data-suggest-part]').hidden = !suggest.length;
+    $('[data-suggest]').replaceChildren(...suggest.map((p) => {
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'chip' });
+      b.setAttribute('aria-pressed', String(select.value === placeValue(p)));
+      if (p.by === 'rule') b.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: 'ルール' }));
+      b.append(p.subcategory ? `${p.category} › ${p.subcategory}` : p.category);
+      b.addEventListener('click', () => pick(p));
+      return b;
+    }));
+    $('[data-create]').hidden = data.addCreate === 'none';
+    // サブカテゴリは今選んでいるカテゴリに作るので、カテゴリが1つもなければ出さない
+    $('[data-new="subcategory"]').hidden = data.addCreate !== 'both' || !select.value;
+  }
+  // 作る: 名前の欄を出し、「作る」で作って選び直す。断られたら、追加の失敗と同じ所に出す
+  let kind = null;
+  const nameField = $('[data-new-name]');
+  for (const b of document.querySelectorAll('[data-new]')) {
+    b.onclick = () => {
+      kind = b.dataset.new;
+      nameField.placeholder = kind === 'category' ? '新しいカテゴリの名前' : `「${JSON.parse(select.value)[0]}」の新しいサブカテゴリの名前`;
+      $('[data-new-form]').hidden = false;
+      nameField.focus();
+    };
+  }
+  const make = async () => {
+    const name = nameField.value.trim();
+    // カテゴリを作るときは選択を読まない（カテゴリが1つもないと選択が空のため）
+    const category = kind === 'subcategory' ? JSON.parse(select.value)[0] : null;
+    try {
+      data = await store.update(kind === 'subcategory' ? ops.addSubcategory(category, name) : ops.addCategory(name));
+    } catch (err) {
+      status(failure(err, '作れませんでした。'), 'error');
+      return;
+    }
+    fillCategories(select, data, '');
+    nameField.value = '';
+    $('[data-new-form]').hidden = true;
+    status('');
+    pick(kind === 'subcategory' ? { category, subcategory: name } : { category: name, subcategory: null });
+  };
+  $('[data-new-save]').onclick = make;
+  // 名前の欄の Enter で、追加の形を送らない
+  nameField.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); make(); } };
+  paint();
+}
+
 // トークンが取り消されていたら、忘れてログインからやり直す（やり直したら true）
 async function relogin(err) {
   if (err?.code !== 'unauthorized') return false;
@@ -149,6 +207,7 @@ async function showAdd(settings) {
     return;
   }
   status(item ? '' : '本文を取得できませんでした。貼り付けると保存できます。', item ? '' : 'error');
+  setupPlaces(store, data, { site: parsed.site, url: item?.url ?? parsed.url ?? target.url, author: item?.author ?? { name: '', handle: parsed.handle ?? '' }, title: item?.title ?? '', text: item?.text ?? '' });
   select.focus();
 
   form.onsubmit = async (e) => {

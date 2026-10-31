@@ -17,6 +17,14 @@ html.window body { width: auto; }
 .foot { margin: .9rem 0 0; font-size: .75rem; }
 /* 対応していないページの文などは、改行のまま出す */
 .msg { white-space: pre-line; }
+/* おすすめの札と、その場で作るボタン（Twimark の定義 2026-10-31-001） */
+.suggest { display: grid; gap: .3rem; font-size: .82rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chip { display: inline-flex; align-items: center; gap: .35rem; padding: .25rem .7rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); cursor: pointer; font-size: .85rem; }
+.chip[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.chip .tag { font-size: .72rem; font-weight: 600; color: var(--accent-ink); }
+.create, .new-form { display: flex; gap: .5rem; }
+.new-form .d-input { flex: 1; }
 /* 要約見出しを作る・翻訳する */
 .toggle { display: flex; align-items: center; gap: .45rem; }
 .toggle input { margin: 0; accent-color: var(--accent); }

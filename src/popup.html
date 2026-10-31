@@ -43,7 +43,18 @@
             <p class="text" data-text></p>
             <p class="url muted" data-url></p>
           </div>
+          <!-- おすすめの札・選んだ理由・その場で作るボタン（Twimark の定義 2026-10-31-001） -->
+          <div class="suggest" data-suggest-part hidden><span class="muted">おすすめ</span><div class="chips" data-suggest></div></div>
           <label>カテゴリ<select class="d-input" name="category" required data-category></select></label>
+          <p class="note" data-reason hidden></p>
+          <div class="create" data-create hidden>
+            <button type="button" class="d-btn" data-new="category">＋ カテゴリ</button>
+            <button type="button" class="d-btn" data-new="subcategory">＋ サブカテゴリ</button>
+          </div>
+          <div class="new-form" data-new-form hidden>
+            <input class="d-input" maxlength="20" autocomplete="off" aria-label="名前" data-new-name />
+            <button type="button" class="d-btn primary" data-new-save>作る</button>
+          </div>
           <label data-paste-text hidden>本文（取得できなかったので貼り付けてください）<textarea class="d-input" name="text" rows="5" maxlength="5000"></textarea></label>
           <label>メモ（任意）<textarea class="d-input" name="note" rows="2" maxlength="2000"></textarea></label>
           <!-- 開くたびに両方 ON -->

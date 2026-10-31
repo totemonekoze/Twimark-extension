@@ -86,7 +86,7 @@ test('拡張: manifest の参照とページの import が、すべて src の�
 // ---- 定義 2026-10-24-003（投稿・記事のブックマークのアイコン） ----
 // 定義 2026-10-25-009 で、対象に Instagram・pixiv・BOOTH を足した。版は 2026-10-25-010 で 0.6.1、その追記で 0.6.2、そのレビューの差し戻しで 0.6.3 に
 // 定義 2026-10-26-002 で GitHub・unityroom・ふりーむ！を足し、006（メモの追加）と合わせて版を 0.7.0 に。007（要約見出しを作る・翻訳するのトグル）で 0.8.0 に
-test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！だけ。アイコンの絵が4つあり、版は 0.8.0', () => {
+test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！だけ。アイコンの絵が4つあり、版は 0.9.0', () => {
   const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
   const content = manifest.content_scripts.find((s) => s.js.includes('content.js'));
   for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm|github\.com|unityroom\.com|www\.freem\.ne\.jp)\/\*$/, m);
@@ -97,7 +97,7 @@ test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOO
   }
   assert.deepEqual(Object.keys(manifest.icons), ['16', '32', '48', '128']);
   for (const p of Object.values(manifest.icons)) assert.ok(existsSync(new URL(`../src/${p}`, import.meta.url)), p);
-  assert.equal(manifest.version, '0.8.0');
+  assert.equal(manifest.version, '0.9.0');
 });
 test('拡張: GitHub・unityroom・ふりーむ！のボタンの目印と URL の形。右クリックの対象にもある', () => {
   const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
@@ -205,6 +205,45 @@ test('追跡中と未追跡のファイルに、メールアドレス・利用�
     if (/["']?account_id["']?\s*[:=]|\b[0-9a-f]{32}\b/i.test(s)) found.push(`${f}: アカウントID`);
   }
   assert.deepEqual(found, []);
+});
+
+// ---- Twimark の定義 2026-10-31-001（おすすめのカテゴリと、その場で作る） ----
+test('拡張: 写した store.js は Twimark のものと先頭の1行のほかは同じ（WorkSpace に Twimark があるときだけ比べる）', () => {
+  const copy = readFileSync(new URL('../src/shared/store.js', import.meta.url), 'utf8');
+  assert.ok(copy.startsWith('// Twimark（アプリ）の src/shared/store.js の写し。'));
+  for (const name of ['suggestPlaces', 'initialPlace', 'pickByRules', 'setAddCreate', 'setSuggestFirst']) assert.ok(copy.includes(name), name);
+  const app = new URL('../../../../Application/Twimark/src/shared/store.js', import.meta.url);
+  if (!existsSync(app)) return;
+  assert.equal(copy.slice(copy.indexOf('\n') + 1), readFileSync(app, 'utf8'));
+});
+
+test('拡張: ポップアップと小さな画面に、おすすめの札・初期の選択の理由・「＋ カテゴリ」「＋ サブカテゴリ」があり、作るのは background.js の twimark-create', () => {
+  const has = (text, part) => assert.ok(text.includes(part), part);
+  const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
+  const popup = read('../src/popup.js');
+  const html = read('../src/popup.html');
+  const content = read('../src/content.js');
+  const background = read('../src/background.js');
+  for (const part of ['data-suggest-part', 'data-reason', 'data-new="category"', 'data-new="subcategory"', 'data-new-form', 'data-new-name', 'data-new-save']) has(html, part);
+  for (const part of ['const initial = initialPlace(data, facts);', 'const suggest = suggestPlaces(data, facts);', "$('[data-create]').hidden = data.addCreate === 'none';", "$('[data-new=\"subcategory\"]').hidden = data.addCreate !== 'both' || !select.value;",
+    "ops.addSubcategory(category, name) : ops.addCategory(name)", "if (p.by === 'rule')"]) has(popup, part);
+  for (const part of ["type: 'twimark-create'", 'if (s.initial) pick(s.initial, s.initial.reason);', "s.addCreate === 'none' ? []", "if (p.by === 'rule')"]) has(content, part);
+  for (const part of ["'twimark-create': (m) => create(m),", 'suggest: facts ? suggestPlaces(data, facts) : [],', 'initial: initial ? { ...initial, reason: PLACE_REASONS[initial.by] } : null,', "author: { name: '', handle: parsed.handle ?? '' }, title: '', text: ''"]) has(background, part);
+});
+
+// Twimark の定義 2026-10-31-001 の追補（レビューの差し戻し）
+test('拡張: カテゴリが1つもなくても「＋ カテゴリ」で作れる（選択を読むのはサブカテゴリのときだけ）。小さな画面にも「おすすめ」の見出し', () => {
+  const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
+  const popup = read('../src/popup.js');
+  const content = read('../src/content.js');
+  // 作るときに選択（空のことがある）をいつも読む形は残っていない
+  assert.ok(!popup.includes('const [category] = JSON.parse(select.value);'));
+  assert.ok(popup.includes("const category = kind === 'subcategory' ? JSON.parse(select.value)[0] : null;"));
+  assert.ok(content.includes("category: kind === 'subcategory' ? JSON.parse(select.value)[0] : null"));
+  assert.ok(!content.includes("category: JSON.parse(select.value)[0], name"));
+  assert.ok(content.includes("const paintSub = () => { if (subButton) subButton.hidden = !select.value; };"));
+  assert.ok(content.includes("el('span', { className: 'muted', textContent: 'おすすめ' }), chips)"));
+  assert.ok(content.includes('button[hidden] { display: none; }'));
 });
 
 let failed = 0;

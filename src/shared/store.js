@@ -6,7 +6,7 @@
 // 新しいアカウントのカテゴリ（今あるアカウントは変えない）
 export const DEFAULT_CATEGORIES = ['新しいカテゴリ'];
 // memoTitle は独立のメモの題、note はブックマークへの書き添え
-export const LIMITS = { category: 20, categories: 30, subcategories: 30, text: 5000, memoTitle: 80, note: 2000 };
+export const LIMITS = { category: 20, categories: 30, subcategories: 30, text: 5000, memoTitle: 80, note: 2000, rules: 100, ruleValue: 100 };
 // memo は独立のメモ（URL のないこともあるカード）。ほかは追加できるサイト
 export const SITES = { x: 'X', note: 'note', qiita: 'Qiita', instagram: 'Instagram', pixiv: 'pixiv', booth: 'BOOTH', github: 'GitHub', unityroom: 'unityroom', freem: 'ふりーむ！', memo: 'メモ' };
 export const PUBLIC_URL = 'https://twimark.ho-service.workers.dev';
@@ -56,7 +56,120 @@ export function checkName(raw, what = 'カテゴリ') {
   return name;
 }
 
-export const emptyData = () => ({ categories: [], subcategories: {}, categoryColors: {}, accent: null, accentOn: null, theme: 'system', bookmarks: [] });
+// カテゴリの画面の並び順（定義 2026-10-30-002）。手動（position）・件数順・最近保存した順
+export const CATEGORY_SORTS = ['manual', 'count', 'recent'];
+// 縦長の一覧のカテゴリの絞り込みの形（定義 2026-10-30-003）。よく使うものだけ並べる・1つの札にまとめる・全部並べる（2段）
+export const CHIP_LAYOUTS = ['pinned', 'single', 'rows'];
+// 追加の画面でその場で作れるもの（定義 2026-10-31-001）。作らない・カテゴリだけ・カテゴリとサブカテゴリ
+export const ADD_CREATES = ['none', 'category', 'both'];
+
+// 自動整理のルール（定義 2026-10-30-004）。条件の種類と、比べるときのそろえ方（NFKC・小文字）
+export const RULE_KINDS = ['site', 'author', 'word', 'url'];
+export const RULE_NAMES = { site: 'サイト', author: '作者', word: '語', url: 'URL' };
+// 一覧に出すルールの名前（「サイト: GitHub」など）
+export const ruleLabel = (r) => `${RULE_NAMES[r.kind]}: ${r.kind === 'site' ? SITES[r.value] ?? r.value : r.value}`;
+export const foldRule = (s) => String(s ?? '').normalize('NFKC').toLowerCase().trim();
+// b は { site, url, author: { name, handle }, title, text }（足りないものは空）。上のルールから順に見て、最初に当たったものの
+// { category, subcategory }、なければ null。作者は先頭の @ を除いた値が handle と同じか、名前と同じ。語は題と本文に、URL は URL に含むか
+export function pickByRules(rules, b) {
+  const handle = foldRule(b?.author?.handle).replace(/^@/, '');
+  const name = foldRule(b?.author?.name);
+  const url = foldRule(b?.url);
+  const body = foldRule(`${b?.title ?? ''}\n${b?.text ?? ''}`);
+  for (const r of Array.isArray(rules) ? rules : []) {
+    const v = foldRule(r.value);
+    if (!v) continue;
+    const hit = r.kind === 'site' ? b?.site === r.value
+      : r.kind === 'author' ? (Boolean(handle) && v.replace(/^@/, '') === handle) || (Boolean(name) && v === name)
+        : r.kind === 'word' ? body.includes(v)
+          : r.kind === 'url' ? url.includes(v) : false;
+    if (hit) return { category: r.category, subcategory: r.subcategory ?? null };
+  }
+  return null;
+}
+
+// 今もある行き先か（カテゴリと、あればそのサブカテゴリ）
+export const placeExists = (data, p) => Boolean(p) && data.categories.includes(p.category) && (!p.subcategory || (data.subcategories[p.category] ?? []).includes(p.subcategory));
+// ---- おすすめのカテゴリ（定義 2026-10-31-001。AI は使わない） ----
+// 比べる中身: 作者（handle、なければ名前）、URL の「ホスト＋最初の段」、ハッシュタグ、語（3文字以上の英数字の語とカタカナの語。
+// URL とハッシュタグの中は除く）、サイト。どれも NFKC・小文字でそろえる
+const TAG = /#[\p{L}\p{N}_]+/gu;
+// 保存する URL の最初の段が決まった語のサイト（/p/・/artworks/・/ja/・/games/・/win/）。同じサイトと同じ意味になるので、URL の最初の段は比べない
+// （定義 2026-10-31-001 の追補）
+const FIXED_PATH = new Set(['instagram', 'pixiv', 'booth', 'unityroom', 'freem']);
+function traitsOf(b) {
+  const handle = foldRule(b?.author?.handle).replace(/^@/, '');
+  let path = '';
+  try {
+    const u = new URL(String(b?.url ?? ''));
+    const first = u.pathname.split('/').filter(Boolean)[0];
+    if (first && !FIXED_PATH.has(b?.site)) path = `${u.hostname.replace(/^www\./, '')}/${first}`.toLowerCase();
+  } catch { /* URL のないメモや、形の違うもの */ }
+  const body = foldRule(`${b?.title ?? ''}\n${b?.text ?? ''}`).replace(/https?:\/\/\S+/g, ' ');
+  const rest = body.replace(TAG, ' ');
+  return {
+    author: handle ? `@${handle}` : foldRule(b?.author?.name),
+    path,
+    tags: new Set(body.match(TAG) ?? []),
+    words: new Set([...(rest.match(/[a-z0-9]{3,}/g) ?? []), ...(rest.match(/[\p{Script=Katakana}ー]{3,}/gu) ?? [])]),
+    site: b?.site ?? '',
+  };
+}
+// 点: 作者が同じ 4、URL の最初の段が同じ 3（FIXED_PATH のサイトは比べない）、ハッシュタグ 1つにつき 2、語 1つにつき 1（1件で3まで）、サイトが同じ 1
+function scoreOf(a, t) {
+  let words = 0;
+  for (const w of a.words) if (t.words.has(w)) words++;
+  return (a.author && a.author === t.author ? 4 : 0) + (a.path && a.path === t.path ? 3 : 0)
+    + [...a.tags].filter((x) => t.tags.has(x)).length * 2 + Math.min(words, 3) + (a.site && a.site === t.site ? 1 : 0);
+}
+// これまでのブックマーク（メモも。未分類と、もうないサブカテゴリのものは除く）の組ごとに点を足し、多い順（同じなら、その組の一番新しい保存の新しい順）
+function historyPlaces(data, b) {
+  const me = traitsOf(b);
+  const places = new Map();
+  for (const x of data.bookmarks) {
+    const place = { category: x.category, subcategory: x.subcategory || null };
+    if (!placeExists(data, place)) continue;
+    const n = scoreOf(me, traitsOf(x));
+    if (!n) continue;
+    const key = `${place.category}\n${place.subcategory ?? ''}`;
+    const p = places.get(key) ?? { ...place, score: 0, at: '' };
+    p.score += n;
+    if (String(x.savedAt ?? '') > p.at) p.at = String(x.savedAt);
+    places.set(key, p);
+  }
+  return [...places.values()]
+    .sort((p, q) => q.score - p.score || (q.at > p.at ? 1 : q.at < p.at ? -1 : 0))
+    .map(({ category, subcategory }) => ({ category, subcategory, by: 'history' }));
+}
+const samePlace = (p, q) => p.category === q.category && (p.subcategory ?? null) === (q.subcategory ?? null);
+// 追加の画面のおすすめの札。b は pickByRules と同じ形。[{ category, subcategory, by: 'rule' | 'history' }] を SUGGEST_MAX まで。
+// 先頭はルールが当たればその組（自動整理の ON・OFF に関わらず）。続けてこれまでの保存から（ルールの組と同じものは重ねない）
+export const SUGGEST_MAX = 3;
+export function suggestPlaces(data, b) {
+  const rule = pickByRules(data.rules, b);
+  const first = placeExists(data, rule) ? [{ ...rule, by: 'rule' }] : [];
+  return [...first, ...historyPlaces(data, b).filter((p) => !first.some((q) => samePlace(p, q)))].slice(0, SUGGEST_MAX);
+}
+// 追加の画面の初期の選択（定義 2026-10-30-004・2026-10-31-001）。b は pickByRules と同じ形。自動整理が ON でルールが当たればその組、
+// でなければ「おすすめを最初から選ぶ」が ON でこれまでの保存の一番の組。どちらもなければ null（前回の組のまま）。
+// 利用者が自分で選んだあとは当て直さない（画面が見る）
+export function initialPlace(data, b) {
+  const rule = data?.autoSort ? pickByRules(data.rules, b) : null;
+  if (placeExists(data, rule)) return { ...rule, by: 'rule' };
+  return (data?.suggestFirst && historyPlaces(data, b)[0]) || null;
+}
+// 整理の候補（定義 2026-10-30-004）。ルールが当たる行き先と今の場所が違うブックマーク（未分類とメモも）を、保存の新しい順に
+// [{ b, to: { category, subcategory } }]
+export function sortCandidates(data) {
+  return data.bookmarks
+    .map((b) => ({ b, to: pickByRules(data.rules, b) }))
+    .filter(({ b, to }) => placeExists(data, to) && (b.category !== to.category || subOf(data, b) !== (to.subcategory ?? null)))
+    .sort((x, y) => String(y.b.savedAt).localeCompare(String(x.b.savedAt)));
+}
+// 初期の選択の理由の注
+export const PLACE_REASONS = { rule: '自動整理のルールで選びました', history: 'おすすめから選びました' };
+
+export const emptyData = () => normalize(null);
 
 // 形の合わないものは落とす（古い画面や壊れた応答でも描けるように）
 export function normalize(raw) {
@@ -70,7 +183,16 @@ export function normalize(raw) {
   const hex = (v) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : null);
   // テーマは shared/theme.js の THEMES のどれか（知らない値は端末に合わせる）
   const theme = ['light', 'dark', 'cream'].includes(raw?.theme) ? raw.theme : 'system';
-  return { categories, subcategories, categoryColors, accent: hex(raw?.accent), accentOn: hex(raw?.accentOn), theme, bookmarks };
+  const pinnedCategories = names(raw?.pinnedCategories).filter((c) => categories.includes(c));
+  const categorySort = CATEGORY_SORTS.includes(raw?.categorySort) ? raw.categorySort : 'manual';
+  const chipLayout = CHIP_LAYOUTS.includes(raw?.chipLayout) ? raw.chipLayout : 'rows';
+  const autoSort = raw?.autoSort === true;
+  const rules = (Array.isArray(raw?.rules) ? raw.rules : [])
+    .filter((r) => Number.isInteger(r?.id) && RULE_KINDS.includes(r.kind) && typeof r.value === 'string' && typeof r.category === 'string')
+    .map((r) => ({ id: r.id, kind: r.kind, value: r.value, category: r.category, subcategory: typeof r.subcategory === 'string' ? r.subcategory : null }));
+  const suggestFirst = raw?.suggestFirst === true;
+  const addCreate = ADD_CREATES.includes(raw?.addCreate) ? raw.addCreate : 'both';
+  return { categories, subcategories, categoryColors, accent: hex(raw?.accent), accentOn: hex(raw?.accentOn), theme, pinnedCategories, categorySort, chipLayout, autoSort, rules, suggestFirst, addCreate, bookmarks };
 }
 
 // ブックマークのサブカテゴリのうち、今もあるものだけ（なければ null）
@@ -91,6 +213,21 @@ export const ops = {
   setAccent: (color) => ({ op: 'setAccent', args: [color] }),
   setAccentText: (color) => ({ op: 'setAccentText', args: [color] }),
   setCategoryColor: (name, color) => ({ op: 'setCategoryColor', args: [name, color] }),
+  // カテゴリの固定（on は真偽）と、カテゴリの画面の並び順（CATEGORY_SORTS のどれか）
+  setCategoryPinned: (name, on) => ({ op: 'setCategoryPinned', args: [name, on] }),
+  setCategorySort: (value) => ({ op: 'setCategorySort', args: [value] }),
+  // 縦長の一覧のカテゴリの絞り込みの形（CHIP_LAYOUTS のどれか）
+  setChipLayout: (value) => ({ op: 'setChipLayout', args: [value] }),
+  // 自動整理（定義 2026-10-30-004）。on は真偽。kind は RULE_KINDS、subcategory は null でカテゴリの直下。ids は今のルールの id を全部
+  setAutoSort: (on) => ({ op: 'setAutoSort', args: [on] }),
+  addRule: (kind, value, category, subcategory = null) => ({ op: 'addRule', args: [kind, value, category, subcategory] }),
+  removeRule: (id) => ({ op: 'removeRule', args: [id] }),
+  sortRules: (ids) => ({ op: 'sortRules', args: [ids] }),
+  // まとめて移す。moves は [[id, カテゴリ, サブカテゴリ], ...]（1〜500件）
+  moveBookmarks: (moves) => ({ op: 'moveBookmarks', args: [moves] }),
+  // 追加の画面（定義 2026-10-31-001）。おすすめを最初から選ぶか（真偽）と、その場で作れるもの（ADD_CREATES のどれか）
+  setSuggestFirst: (on) => ({ op: 'setSuggestFirst', args: [on] }),
+  setAddCreate: (value) => ({ op: 'setAddCreate', args: [value] }),
   // テーマ（'system' | 'light' | 'dark' | 'cream'）
   setTheme: (value) => ({ op: 'setTheme', args: [value] }),
   // カテゴリを別のカテゴリの下へ入れる・サブカテゴリをカテゴリに戻す・サブカテゴリを別のカテゴリへ移す

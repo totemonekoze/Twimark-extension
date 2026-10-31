@@ -1,8 +1,8 @@
 // 右クリックのメニューと、共有メニューに差し込んだ項目（content.js）から、追加の画面を小さなウィンドウで開く。
 // 投稿・記事のアイコン（content.js）の問い合わせも受ける: 保存済みか（twimark-state）、その場の追加（twimark-save）、
-// 連携の画面（twimark-link）、一覧で開く（twimark-open）。/api/data は覚えておき、5分たつか、追加したら読み直す。
+// 連携の画面（twimark-link）、一覧で開く（twimark-open）、その場でカテゴリ・サブカテゴリを作る（twimark-create）。/api/data は覚えておき、5分たつか、追加したら読み直す。
 // module の service worker（manifest の background.type）なので、shared/ を import できる
-import { createStore, describeError, ops, PUBLIC_URL } from './shared/store.js';
+import { createStore, describeError, initialPlace, ops, PLACE_REASONS, PUBLIC_URL, suggestPlaces } from './shared/store.js';
 import { fetchMeta, parseUrl } from './shared/meta.js';
 import { DEFAULT_ACCENT } from './shared/theme.js';
 import { loadSettings, openLinkPage } from './account.js';
@@ -58,6 +58,9 @@ async function state(url) {
   const { data } = c;
   const saved = parsed ? data.bookmarks.find((b) => b.id === parsed.id) : null;
   const { lastPlace } = await chrome.storage.local.get('lastPlace');
+  // おすすめと初期の選択（Twimark の定義 2026-10-31-001）。小さな画面は下見を取らないので、URL・サイト・X の handle だけで判定する
+  const facts = parsed && !saved ? { site: parsed.site, url: parsed.url ?? url, author: { name: '', handle: parsed.handle ?? '' }, title: '', text: '' } : null;
+  const initial = facts ? initialPlace(data, facts) : null;
   return {
     linked: true,
     accent: data.accent ?? DEFAULT_ACCENT,
@@ -65,6 +68,9 @@ async function state(url) {
     categories: data.categories,
     subcategories: data.subcategories,
     lastPlace: lastPlace ?? null,
+    suggest: facts ? suggestPlaces(data, facts) : [],
+    initial: initial ? { ...initial, reason: PLACE_REASONS[initial.by] } : null,
+    addCreate: data.addCreate,
   };
 }
 
@@ -88,6 +94,18 @@ async function save({ url, place, text = '', wants = {} }) {
   return { ok: true };
 }
 
+// 小さな画面から、新しいカテゴリ（kind: 'category'）か、category のサブカテゴリ（kind: 'subcategory'）を作る。
+// 作ったあとの state に、作った組（created: [カテゴリ, サブカテゴリ]）を足して返す。断られたら { error }
+async function create({ kind, category, name, url }) {
+  const settings = await loadSettings();
+  if (!settings?.token) return { error: 'Twimark にログインして連携してください。' };
+  const next = String(name ?? '').trim();
+  const sub = kind === 'subcategory';
+  const data = await createStore({ base: PUBLIC_URL, token: settings.token }).update(sub ? ops.addSubcategory(category, next) : ops.addCategory(next));
+  cache = { at: Date.now(), token: settings.token, data };
+  return { ...(await state(url)), created: sub ? [category, next] : [next, null] };
+}
+
 // 一覧の画面を、そのカテゴリ（とサブカテゴリ）で開く
 function openList({ category, sub }) {
   const u = new URL(PUBLIC_URL);
@@ -103,6 +121,7 @@ const HANDLERS = {
   'twimark-save': (m) => save(m),
   'twimark-link': () => openLinkPage(),
   'twimark-open': (m) => openList(m),
+  'twimark-create': (m) => create(m),
 };
 // 答えは sendResponse で返す（onMessage は Promise を返しても待たないブラウザがある）。失敗は { error } にする
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
