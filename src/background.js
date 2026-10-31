@@ -1,6 +1,6 @@
 // 右クリックのメニューと、共有メニューに差し込んだ項目（content.js）から、追加の画面を小さなウィンドウで開く。
 // 投稿・記事のアイコン（content.js）の問い合わせも受ける: 保存済みか（twimark-state）、その場の追加（twimark-save）、
-// 連携の画面（twimark-link）、一覧で開く（twimark-open）、その場でカテゴリ・サブカテゴリを作る（twimark-create）。/api/data は覚えておき、5分たつか、追加したら読み直す。
+// 連携の画面（twimark-link）、一覧で開く（twimark-open）、その場でカテゴリ・サブカテゴリを作る（twimark-create）、下見を見たおすすめ（twimark-suggest）。/api/data は覚えておき、5分たつか、追加したら読み直す。
 // module の service worker（manifest の background.type）なので、shared/ を import できる
 import { createStore, describeError, initialPlace, ops, PLACE_REASONS, PUBLIC_URL, suggestPlaces } from './shared/store.js';
 import { fetchMeta, parseUrl } from './shared/meta.js';
@@ -59,8 +59,8 @@ async function state(url) {
   const saved = parsed ? data.bookmarks.find((b) => b.id === parsed.id) : null;
   const { lastPlace } = await chrome.storage.local.get('lastPlace');
   // おすすめと初期の選択（Twimark の定義 2026-10-31-001）。小さな画面は下見を取らないので、URL・サイト・X の handle だけで判定する
+  // 開いてすぐは URL・サイト・handle だけで決め、続けて twimark-suggest で下見を見て出し直す
   const facts = parsed && !saved ? { site: parsed.site, url: parsed.url ?? url, author: { name: '', handle: parsed.handle ?? '' }, title: '', text: '' } : null;
-  const initial = facts ? initialPlace(data, facts) : null;
   return {
     linked: true,
     accent: data.accent ?? DEFAULT_ACCENT,
@@ -68,10 +68,25 @@ async function state(url) {
     categories: data.categories,
     subcategories: data.subcategories,
     lastPlace: lastPlace ?? null,
-    suggest: facts ? suggestPlaces(data, facts) : [],
-    initial: initial ? { ...initial, reason: PLACE_REASONS[initial.by] } : null,
+    ...places(data, facts),
+    suggestCount: data.suggestCount,
     addCreate: data.addCreate,
   };
+}
+const places = (data, facts) => {
+  const initial = facts ? initialPlace(data, facts) : null;
+  return { suggest: facts ? suggestPlaces(data, facts) : [], initial: initial ? { ...initial, reason: PLACE_REASONS[initial.by] } : null };
+};
+
+// 小さな画面が開いたあと、ポップアップと同じ下見（作者・題・本文）を取って、おすすめと初期の選択を出し直す（Twimark の定義 2026-10-31-004）。
+// 下見を取れなければ null（小さな画面は今の札のまま）
+async function suggestFor({ url }) {
+  const parsed = parseUrl(url);
+  const c = await current();
+  if (!parsed || !c) return { suggest: null };
+  const item = await fetchMeta(parsed).catch(() => null);
+  if (!item) return { suggest: null };
+  return places(c.data, { site: parsed.site, url: item.url ?? parsed.url ?? url, author: item.author ?? { name: '', handle: parsed.handle ?? '' }, title: item.title ?? '', text: item.text ?? '' });
 }
 
 // その場の追加。本文を取れず、貼り付けもなければ needText を返す（小さな画面が本文の欄を出す）。wants は要約見出しを作る・翻訳する
@@ -118,6 +133,7 @@ const HANDLERS = {
   'twimark-add': (m) => openAdd(m.url),
   'twimark-changed': () => forget(),
   'twimark-state': (m) => state(m.url),
+  'twimark-suggest': (m) => suggestFor(m),
   'twimark-save': (m) => save(m),
   'twimark-link': () => openLinkPage(),
   'twimark-open': (m) => openList(m),

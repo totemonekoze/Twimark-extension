@@ -228,7 +228,7 @@ test('拡張: ポップアップと小さな画面に、おすすめの札・初
   for (const part of ['const initial = initialPlace(data, facts);', 'const suggest = suggestPlaces(data, facts);', "$('[data-create]').hidden = data.addCreate === 'none';", "$('[data-new=\"subcategory\"]').hidden = data.addCreate !== 'both' || !select.value;",
     "ops.addSubcategory(category, name) : ops.addCategory(name)", "if (p.by === 'rule')"]) has(popup, part);
   for (const part of ["type: 'twimark-create'", 'if (s.initial) pick(s.initial, s.initial.reason);', "s.addCreate === 'none' ? []", "if (p.by === 'rule')"]) has(content, part);
-  for (const part of ["'twimark-create': (m) => create(m),", 'suggest: facts ? suggestPlaces(data, facts) : [],', 'initial: initial ? { ...initial, reason: PLACE_REASONS[initial.by] } : null,', "author: { name: '', handle: parsed.handle ?? '' }, title: '', text: ''"]) has(background, part);
+  for (const part of ["'twimark-create': (m) => create(m),", 'suggest: facts ? suggestPlaces(data, facts) : [],', 'initial: initial ? { ...initial, reason: PLACE_REASONS[initial.by] } : null', "author: { name: '', handle: parsed.handle ?? '' }, title: '', text: ''"]) has(background, part);
 });
 
 // Twimark の定義 2026-10-31-001 の追補（レビューの差し戻し）
@@ -242,8 +242,17 @@ test('拡張: カテゴリが1つもなくても「＋ カテゴリ」で作れ�
   assert.ok(content.includes("category: kind === 'subcategory' ? JSON.parse(select.value)[0] : null"));
   assert.ok(!content.includes("category: JSON.parse(select.value)[0], name"));
   assert.ok(content.includes("const paintSub = () => { if (subButton) subButton.hidden = !select.value; };"));
-  assert.ok(content.includes("el('span', { className: 'muted', textContent: 'おすすめ' }), chips)"));
+  assert.ok(content.includes("el('span', { className: 'muted', textContent: 'おすすめ' }), chips"));
   assert.ok(content.includes('button[hidden] { display: none; }'));
+});
+
+// Twimark の定義 2026-10-31-004
+test('拡張: 小さな画面が twimark-suggest を送り、background.js が下見（fetchMeta）を見たおすすめを返す。自分で選んだあとは当て直さない', () => {
+  const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
+  const content = read('../src/content.js');
+  const background = read('../src/background.js');
+  for (const part of ["ask({ type: 'twimark-suggest', url })", 'おすすめを探しています…', 'if (!touched && r.initial)', 'touched = true;', 'hidden: s.suggestCount === 0']) assert.ok(content.includes(part), part);
+  for (const part of ["'twimark-suggest': (m) => suggestFor(m),", 'suggestCount: data.suggestCount,', 'const item = await fetchMeta(parsed).catch(() => null);', "if (!item) return { suggest: null };"]) assert.ok(background.includes(part), part);
 });
 
 let failed = 0;

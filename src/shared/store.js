@@ -90,84 +90,231 @@ export function pickByRules(rules, b) {
 
 // 今もある行き先か（カテゴリと、あればそのサブカテゴリ）
 export const placeExists = (data, p) => Boolean(p) && data.categories.includes(p.category) && (!p.subcategory || (data.subcategories[p.category] ?? []).includes(p.subcategory));
-// ---- おすすめのカテゴリ（定義 2026-10-31-001。AI は使わない） ----
-// 比べる中身: 作者（handle、なければ名前）、URL の「ホスト＋最初の段」、ハッシュタグ、語（3文字以上の英数字の語とカタカナの語。
-// URL とハッシュタグの中は除く）、サイト。どれも NFKC・小文字でそろえる
+// ---- おすすめのカテゴリ（定義 2026-10-31-001・2026-10-31-004。AI・辞書・Intl.Segmenter は使わない。アプリの Hermes と拡張でも同じに動かすため） ----
+// 語を抜く（termsOf）。どれも NFKC・小文字。'a:' 作者（@handle、なければ name:<名前>）、'u:' URL の「ホスト＋最初の段」、's:' サイト、
+// 't:' ハッシュタグ、'w:' 題と本文の語（2文字以上の英数字の語、2文字以上のカタカナの続き、漢字の続き（2〜4文字ならそのもの、3文字以上なら2文字ずつの組も））。
+// URL は除き、絵文字・記号は区切り。ひらがなだけの語は使わない
 const TAG = /#[\p{L}\p{N}_]+/gu;
 // 保存する URL の最初の段が決まった語のサイト（/p/・/artworks/・/ja/・/games/・/win/）。同じサイトと同じ意味になるので、URL の最初の段は比べない
 // （定義 2026-10-31-001 の追補）
 const FIXED_PATH = new Set(['instagram', 'pixiv', 'booth', 'unityroom', 'freem']);
-function traitsOf(b) {
+// よく出る英語の語（どのカテゴリにも出るので比べない）
+const STOP = new Set('the and for with this that from are was were you your our have has had not but all can will just about into out more one new http https www com net org jp co html amp rt of to in on at is it by an or be as so if we my me do no up go vs via'.split(' '));
+function wordsOf(text, add) {
+  for (const w of text.match(/[a-z0-9]{2,}/g) ?? []) if (!STOP.has(w) && !/^\d+$/.test(w)) add(`w:${w}`);
+  for (const w of text.match(/[\p{Script=Katakana}ー]{2,}/gu) ?? []) if (/[^ー]/.test(w)) add(`w:${w}`);
+  for (const run of text.match(/\p{Script=Han}{2,}/gu) ?? []) {
+    if (run.length <= 4) add(`w:${run}`);
+    if (run.length >= 3) for (let i = 0; i < run.length - 1; i++) add(`w:${run.slice(i, i + 2)}`);
+  }
+}
+export function termsOf(b) {
+  const out = new Set();
+  const add = (t) => out.add(t);
   const handle = foldRule(b?.author?.handle).replace(/^@/, '');
-  let path = '';
+  const name = foldRule(b?.author?.name);
+  if (handle) add(`a:@${handle}`);
+  else if (name) add(`a:name:${name}`);
   try {
     const u = new URL(String(b?.url ?? ''));
     const first = u.pathname.split('/').filter(Boolean)[0];
-    if (first && !FIXED_PATH.has(b?.site)) path = `${u.hostname.replace(/^www\./, '')}/${first}`.toLowerCase();
+    if (first && !FIXED_PATH.has(b?.site)) add(`u:${u.hostname.replace(/^www\./, '')}/${first}`.toLowerCase());
   } catch { /* URL のないメモや、形の違うもの */ }
+  if (b?.site) add(`s:${b.site}`);
   const body = foldRule(`${b?.title ?? ''}\n${b?.text ?? ''}`).replace(/https?:\/\/\S+/g, ' ');
-  const rest = body.replace(TAG, ' ');
-  return {
-    author: handle ? `@${handle}` : foldRule(b?.author?.name),
-    path,
-    tags: new Set(body.match(TAG) ?? []),
-    words: new Set([...(rest.match(/[a-z0-9]{3,}/g) ?? []), ...(rest.match(/[\p{Script=Katakana}ー]{3,}/gu) ?? [])]),
-    site: b?.site ?? '',
-  };
+  for (const tag of body.match(TAG) ?? []) add(`t:${tag}`);
+  wordsOf(body.replace(/#/g, ' '), add);
+  return out;
 }
-// 点: 作者が同じ 4、URL の最初の段が同じ 3（FIXED_PATH のサイトは比べない）、ハッシュタグ 1つにつき 2、語 1つにつき 1（1件で3まで）、サイトが同じ 1
-function scoreOf(a, t) {
-  let words = 0;
-  for (const w of a.words) if (t.words.has(w)) words++;
-  return (a.author && a.author === t.author ? 4 : 0) + (a.path && a.path === t.path ? 3 : 0)
-    + [...a.tags].filter((x) => t.tags.has(x)).length * 2 + Math.min(words, 3) + (a.site && a.site === t.site ? 1 : 0);
+
+// 重み・下限（定義 2026-10-31-004）。scripts/suggest-eval.mjs で本番のデータ（2026-10-31、今ある組のブックマーク 65件・組 15）を読むだけで測って決めた。
+// そのデータは 65件中 63件が X で、作者はほぼ重ならず、ハッシュタグもないので、効いているのは主に本文の語とカテゴリ名。保存が増えたら測り直す。
+// 語の種類の重み（作者 > URL の段 > ハッシュタグ > 語 > サイト）。保存の割合は件数＋SMOOTH で割る（1件だけの組が割合 1 で勝ちすぎないように）
+const WEIGHT = { a: 3, u: 2, t: 1, w: 0.25, s: 0.1 };
+const SMOOTH = 0.5;
+// カテゴリ名: 本文と題に名前そのものがあれば NAME_FULL、名前の語が b の語にあれば1つにつき NAME_WORD（サブカテゴリの組では、カテゴリの名前は半分）
+const NAME_FULL = 1;
+const NAME_WORD = 0.5;
+// 点がこれより小さい組は出さない。一番が SURE_MIN 以上で、2番より SURE_GAP 以上なら「確か」（最初から選ぶ・整理の候補に出す）。
+// 確かのときの1番目が8割以上になる所（上のデータで 6件・83.3%）。差を小さくすると件数は増えるが、5割ほどに下がる
+const MIN_SCORE = 0.1;
+const SURE_MIN = 1;
+const SURE_GAP = 2;
+const compact = (s) => foldRule(s).replace(/[^\p{L}\p{N}]+/gu, '');
+// カテゴリ名の語。名前そのもの（絵文字・記号を除き2文字以上）と、termsOf と同じ語
+function nameOf(raw) {
+  const words = new Set();
+  wordsOf(foldRule(raw).replace(/[^\p{L}\p{N}]+/gu, ' '), (t) => words.add(t));
+  return { full: compact(raw), words };
 }
-// これまでのブックマーク（メモも。未分類と、もうないサブカテゴリのものは除く）の組ごとに点を足し、多い順（同じなら、その組の一番新しい保存の新しい順）
-function historyPlaces(data, b) {
-  const me = traitsOf(b);
+// 名前の点。英数字だけの名前は、名前の語がすべて b の語にあるときだけ「名前そのもの」（「ai」が「said」に当たらないように）
+function nameScore(n, body, terms, weight) {
+  if (n.full.length < 2) return 0;
+  let score = 0;
+  const ascii = /^[a-z0-9]+$/.test(n.full);
+  if (ascii ? n.words.size > 0 && [...n.words].every((t) => terms.has(t)) : body.includes(n.full)) score += NAME_FULL;
+  for (const t of n.words) if (terms.has(t)) score += NAME_WORD;
+  return score * weight;
+}
+
+// 組ごとの数え上げ（data ごとに1度だけ作る）。行き先は今ある組（カテゴリの直下と各サブカテゴリ）ぜんぶ。保存は今ある組にあるものだけを数える
+const statsCache = new WeakMap();
+const keyOf = (category, subcategory) => `${category}\n${subcategory ?? ''}`;
+function statsOf(data) {
+  let st = statsCache.get(data);
+  if (st) return st;
   const places = new Map();
-  for (const x of data.bookmarks) {
-    const place = { category: x.category, subcategory: x.subcategory || null };
-    if (!placeExists(data, place)) continue;
-    const n = scoreOf(me, traitsOf(x));
-    if (!n) continue;
-    const key = `${place.category}\n${place.subcategory ?? ''}`;
-    const p = places.get(key) ?? { ...place, score: 0, at: '' };
-    p.score += n;
-    if (String(x.savedAt ?? '') > p.at) p.at = String(x.savedAt);
-    places.set(key, p);
+  const put = (category, subcategory) => places.set(keyOf(category, subcategory), {
+    category, subcategory, n: 0, counts: new Map(), at: '',
+    names: subcategory ? [[nameOf(subcategory), 1], [nameOf(category), 0.5]] : [[nameOf(category), 1]],
+  });
+  for (const c of data.categories) {
+    put(c, null);
+    for (const sub of data.subcategories[c] ?? []) put(c, sub);
   }
-  return [...places.values()]
-    .sort((p, q) => q.score - p.score || (q.at > p.at ? 1 : q.at < p.at ? -1 : 0))
-    .map(({ category, subcategory }) => ({ category, subcategory, by: 'history' }));
+  const df = new Map();
+  const byId = new Map();
+  for (const x of data.bookmarks) {
+    // 未分類と、もうないサブカテゴリのものは数えない
+    const key = keyOf(x.category, x.subcategory || null);
+    const place = places.get(key);
+    if (!place) continue;
+    const terms = termsOf(x);
+    byId.set(x.id, { key, terms });
+    place.n++;
+    if (String(x.savedAt ?? '') > place.at) place.at = String(x.savedAt);
+    for (const t of terms) {
+      place.counts.set(t, (place.counts.get(t) ?? 0) + 1);
+      df.set(t, (df.get(t) ?? 0) + 1);
+    }
+  }
+  st = { places, df, byId, n: byId.size };
+  statsCache.set(data, st);
+  return st;
 }
+
+// 推し量る（定義 2026-10-31-004）。b は pickByRules と同じ形。skip はその id のブックマークを数えない（測るときと整理の候補）。
+// [{ category, subcategory, score, sure }] を点の多い順（同じなら、その組の一番新しい保存の新しい順）。sure は一番の組だけが持てる
+export function inferPlaces(data, b, { skip } = {}) {
+  const st = statsOf(data);
+  const me = termsOf(b);
+  const body = compact(`${b?.title ?? ''}\n${b?.text ?? ''}`.replace(/https?:\/\/\S+/g, ' '));
+  const sk = skip ? st.byId.get(skip) : null;
+  const n = st.n - (sk ? 1 : 0);
+  const less = (key, t) => (sk && sk.key === key && sk.terms.has(t) ? 1 : 0);
+  const list = [];
+  for (const [key, p] of st.places) {
+    let score = 0;
+    const size = p.n - (sk?.key === key ? 1 : 0);
+    if (size > 0) {
+      for (const t of me) {
+        const c = (p.counts.get(t) ?? 0) - less(key, t);
+        if (c <= 0) continue;
+        const df = (st.df.get(t) ?? 0) - (sk?.terms.has(t) ? 1 : 0);
+        score += (c / (size + SMOOTH)) * Math.log(1 + n / df) * WEIGHT[t[0]];
+      }
+    }
+    for (const [name, weight] of p.names) score += nameScore(name, body, me, weight);
+    if (score >= MIN_SCORE) list.push({ category: p.category, subcategory: p.subcategory, score, at: p.at });
+  }
+  list.sort((p, q) => q.score - p.score || (q.at > p.at ? 1 : q.at < p.at ? -1 : 0));
+  return list.map(({ category, subcategory, score }, i) => ({
+    category, subcategory, score, sure: i === 0 && score >= SURE_MIN && score - (list[1]?.score ?? 0) >= SURE_GAP,
+  }));
+}
+
 const samePlace = (p, q) => p.category === q.category && (p.subcategory ?? null) === (q.subcategory ?? null);
-// 追加の画面のおすすめの札。b は pickByRules と同じ形。[{ category, subcategory, by: 'rule' | 'history' }] を SUGGEST_MAX まで。
-// 先頭はルールが当たればその組（自動整理の ON・OFF に関わらず）。続けてこれまでの保存から（ルールの組と同じものは重ねない）
-export const SUGGEST_MAX = 3;
+// 追加の画面のおすすめの数（0・1・3。設定の「おすすめの数」）
+export const SUGGEST_COUNTS = [0, 1, 3];
+// 追加の画面のおすすめの札。b は pickByRules と同じ形。[{ category, subcategory, by: 'rule' | 'infer' }] を data.suggestCount まで（0 なら空）。
+// 先頭はルールが当たればその組（自動整理の ON・OFF に関わらず）。続けて推し量った組（ルールの組と同じものは重ねない）
 export function suggestPlaces(data, b) {
   const rule = pickByRules(data.rules, b);
   const first = placeExists(data, rule) ? [{ ...rule, by: 'rule' }] : [];
-  return [...first, ...historyPlaces(data, b).filter((p) => !first.some((q) => samePlace(p, q)))].slice(0, SUGGEST_MAX);
+  const rest = inferPlaces(data, b).filter((p) => !first.some((q) => samePlace(p, q))).map(({ category, subcategory }) => ({ category, subcategory, by: 'infer' }));
+  return [...first, ...rest].slice(0, data.suggestCount ?? 3);
 }
-// 追加の画面の初期の選択（定義 2026-10-30-004・2026-10-31-001）。b は pickByRules と同じ形。自動整理が ON でルールが当たればその組、
-// でなければ「おすすめを最初から選ぶ」が ON でこれまでの保存の一番の組。どちらもなければ null（前回の組のまま）。
+// 追加の画面の初期の選択（定義 2026-10-30-004・2026-10-31-001・2026-10-31-004）。b は pickByRules と同じ形。自動整理が ON でルールが当たればその組、
+// でなければ「おすすめを最初から選ぶ」が ON で推し量った一番が確かならその組（おすすめの数が OFF でも）。どちらもなければ null（前回の組のまま）。
 // 利用者が自分で選んだあとは当て直さない（画面が見る）
 export function initialPlace(data, b) {
   const rule = data?.autoSort ? pickByRules(data.rules, b) : null;
   if (placeExists(data, rule)) return { ...rule, by: 'rule' };
-  return (data?.suggestFirst && historyPlaces(data, b)[0]) || null;
+  if (!data?.suggestFirst) return null;
+  const top = inferPlaces(data, b)[0];
+  return top?.sure ? { category: top.category, subcategory: top.subcategory, by: 'infer' } : null;
 }
-// 整理の候補（定義 2026-10-30-004）。ルールが当たる行き先と今の場所が違うブックマーク（未分類とメモも）を、保存の新しい順に
-// [{ b, to: { category, subcategory } }]
+// 整理の候補（定義 2026-10-30-004・2026-10-31-004）。[{ b, to: { category, subcategory }, by: 'rule' | 'infer' }]。
+// 先にルールが当たる行き先と今の場所が違うもの（未分類とメモも）、続けて未分類でルールが当たらず、推し量った一番が確かなもの。それぞれ保存の新しい順
+const newer = (x, y) => String(y.b.savedAt).localeCompare(String(x.b.savedAt));
 export function sortCandidates(data) {
-  return data.bookmarks
-    .map((b) => ({ b, to: pickByRules(data.rules, b) }))
-    .filter(({ b, to }) => placeExists(data, to) && (b.category !== to.category || subOf(data, b) !== (to.subcategory ?? null)))
-    .sort((x, y) => String(y.b.savedAt).localeCompare(String(x.b.savedAt)));
+  const rule = [];
+  const infer = [];
+  for (const b of data.bookmarks) {
+    const to = pickByRules(data.rules, b);
+    if (placeExists(data, to)) {
+      if (b.category !== to.category || subOf(data, b) !== (to.subcategory ?? null)) rule.push({ b, to, by: 'rule' });
+    } else if (!data.categories.includes(b.category)) {
+      const top = inferPlaces(data, b, { skip: b.id })[0];
+      if (top?.sure) infer.push({ b, to: { category: top.category, subcategory: top.subcategory }, by: 'infer' });
+    }
+  }
+  return [...rule.sort(newer), ...infer.sort(newer)];
+}
+
+// ルールの案（定義 2026-10-31-004）。これまでの保存（今ある組にあるもの）から、作者・URL の段・ハッシュタグ・語（英数字・カタカナは3文字以上、漢字は2文字以上）・
+// サイトごとに、それを持つ保存が3件以上（サイトは5件以上）あり、その8割以上（サイトは9割以上）が1つの組にあるもの。件数の多い順に10個まで。
+// 同じ種類と値のルールがもうあるもの、今のルールでもうその組に送られるものは出さない。[{ kind, value, category, subcategory, hits, inPlace }]
+// 語として持つかで選んだあと、ルールは部分一致で当たる（語の「art」が「start」にも）ので、hits・inPlace と割合は、数えている保存に案のルールを当てて数え直す
+const PROPOSAL_MAX = 10;
+function ruleOfTerm(t) {
+  const v = t.slice(2);
+  if (t[0] === 'a') return { kind: 'author', value: v.startsWith('name:') ? v.slice(5) : v };
+  if (t[0] === 'u') return { kind: 'url', value: v };
+  if (t[0] === 's') return { kind: 'site', value: v };
+  if (t[0] === 't') return { kind: 'word', value: v };
+  return /\p{Script=Han}/u.test(v) || v.length >= 3 ? { kind: 'word', value: v } : null;
+}
+export function ruleProposals(data) {
+  const st = statsOf(data);
+  const found = [];
+  for (const [t, hits] of st.df) {
+    const site = t[0] === 's';
+    if (hits < (site ? 5 : 3)) continue;
+    let best = null;
+    for (const p of st.places.values()) { const c = p.counts.get(t) ?? 0; if (c > (best?.c ?? 0)) best = { p, c }; }
+    if (!best || best.c / hits < (site ? 0.9 : 0.8)) continue;
+    const rule = ruleOfTerm(t);
+    if (!rule) continue;
+    const counts = new Map();
+    let all = 0;
+    for (const b of data.bookmarks) {
+      const key = st.byId.get(b.id)?.key;
+      if (!key || !pickByRules([rule], b)) continue;
+      all++;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const [key, c] = [...counts].reduce((m, e) => (e[1] > m[1] ? e : m), ['', 0]);
+    // 件数の下限も数え直した数で見る（URL の段は語として日本語をパーセントの形に、ポートを落として数えるので、ルールが1件も当たらないことがある）
+    if (all < (site ? 5 : 3) || c / all < (site ? 0.9 : 0.8)) continue;
+    const p = st.places.get(key);
+    found.push({ ...rule, category: p.category, subcategory: p.subcategory, hits: all, inPlace: c });
+  }
+  found.sort((x, y) => y.hits - x.hits || y.inPlace - x.inPlace);
+  const out = [];
+  for (const f of found) {
+    if (out.length >= PROPOSAL_MAX) break;
+    if (data.rules.some((r) => r.kind === f.kind && foldRule(r.value).replace(/^@/, '') === foldRule(f.value).replace(/^@/, ''))) continue;
+    // 漢字の2文字の組などで、同じ組・同じ件数の長い語の案がもうあれば重ねない
+    if (f.kind === 'word' && out.some((o) => o.kind === 'word' && samePlace(o, f) && o.hits === f.hits && (o.value.includes(f.value) || f.value.includes(o.value)))) continue;
+    const mine = data.bookmarks.filter((b) => st.byId.get(b.id)?.key === keyOf(f.category, f.subcategory) && pickByRules([f], b));
+    if (mine.every((b) => samePlace(pickByRules(data.rules, b) ?? {}, f))) continue;
+    out.push(f);
+  }
+  return out;
 }
 // 初期の選択の理由の注
-export const PLACE_REASONS = { rule: '自動整理のルールで選びました', history: 'おすすめから選びました' };
+export const PLACE_REASONS = { rule: '自動整理のルールで選びました', infer: 'おすすめから選びました' };
 
 export const emptyData = () => normalize(null);
 
@@ -192,7 +339,8 @@ export function normalize(raw) {
     .map((r) => ({ id: r.id, kind: r.kind, value: r.value, category: r.category, subcategory: typeof r.subcategory === 'string' ? r.subcategory : null }));
   const suggestFirst = raw?.suggestFirst === true;
   const addCreate = ADD_CREATES.includes(raw?.addCreate) ? raw.addCreate : 'both';
-  return { categories, subcategories, categoryColors, accent: hex(raw?.accent), accentOn: hex(raw?.accentOn), theme, pinnedCategories, categorySort, chipLayout, autoSort, rules, suggestFirst, addCreate, bookmarks };
+  const suggestCount = SUGGEST_COUNTS.includes(raw?.suggestCount) ? raw.suggestCount : 3;
+  return { categories, subcategories, categoryColors, accent: hex(raw?.accent), accentOn: hex(raw?.accentOn), theme, pinnedCategories, categorySort, chipLayout, autoSort, rules, suggestFirst, addCreate, suggestCount, bookmarks };
 }
 
 // ブックマークのサブカテゴリのうち、今もあるものだけ（なければ null）
@@ -228,6 +376,8 @@ export const ops = {
   // 追加の画面（定義 2026-10-31-001）。おすすめを最初から選ぶか（真偽）と、その場で作れるもの（ADD_CREATES のどれか）
   setSuggestFirst: (on) => ({ op: 'setSuggestFirst', args: [on] }),
   setAddCreate: (value) => ({ op: 'setAddCreate', args: [value] }),
+  // おすすめの数（SUGGEST_COUNTS のどれか。定義 2026-10-31-004）
+  setSuggestCount: (n) => ({ op: 'setSuggestCount', args: [n] }),
   // テーマ（'system' | 'light' | 'dark' | 'cream'）
   setTheme: (value) => ({ op: 'setTheme', args: [value] }),
   // カテゴリを別のカテゴリの下へ入れる・サブカテゴリをカテゴリに戻す・サブカテゴリを別のカテゴリへ移す

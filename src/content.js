@@ -353,10 +353,14 @@
       if ([...select.options].some((o) => o.value === value)) select.value = value;
     };
     fill(s, s.lastPlace);
-    // おすすめの札・選んだ理由・その場で作るボタン（Twimark の定義 2026-10-31-001）。初期の選択と札は background.js の state が決める
+    // おすすめの札・選んだ理由・その場で作るボタン（Twimark の定義 2026-10-31-001）。初期の選択と札は background.js の state が決め、
+    // 続けて twimark-suggest で下見（作者・題・本文）を見て出し直す（定義 2026-10-31-004）。自分で選んだあと（touched）は選択を当て直さない
     const reason = el('p', { className: 'muted', hidden: true });
     const chips = el('div', { className: 'chips' });
-    const suggestPart = el('div', { className: 'suggest' }, el('span', { className: 'muted', textContent: 'おすすめ' }), chips);
+    // おすすめの数が OFF なら、探している間も「おすすめ」の行を出さない（初期の選択のための問い合わせは送る）
+    const looking = el('span', { className: 'muted', textContent: 'おすすめを探しています…', hidden: s.suggestCount === 0 });
+    const suggestPart = el('div', { className: 'suggest' }, el('span', { className: 'muted', textContent: 'おすすめ' }), chips, looking);
+    let touched = false;
     // 「＋ サブカテゴリ」（作れるときだけ）。今選んでいるカテゴリに作るので、カテゴリが1つもなければ出さない
     let subButton = null;
     const paintSub = () => { if (subButton) subButton.hidden = !select.value; };
@@ -368,19 +372,28 @@
     };
     function paintChips() {
       paintSub();
-      suggestPart.hidden = !s.suggest?.length;
+      suggestPart.hidden = !s.suggest?.length && looking.hidden;
       chips.replaceChildren(...(s.suggest ?? []).map((p) => {
         const b = el('button', { type: 'button', className: 'chip' });
         b.setAttribute('aria-pressed', String(select.value === JSON.stringify([p.category, p.subcategory ?? null])));
         if (p.by === 'rule') b.append(el('span', { className: 'tag', textContent: 'ルール' }));
         b.append(p.subcategory ? `${p.category} › ${p.subcategory}` : p.category);
-        b.addEventListener('click', () => pick(p));
+        b.addEventListener('click', () => { touched = true; pick(p); });
         return b;
       }));
     }
     if (s.initial) pick(s.initial, s.initial.reason);
     else paintChips();
-    select.addEventListener('change', () => { reason.hidden = true; paintChips(); });
+    select.addEventListener('change', () => { touched = true; reason.hidden = true; paintChips(); });
+    ask({ type: 'twimark-suggest', url }).then((r) => {
+      if (panel !== frame) return;
+      looking.hidden = true;
+      if (Array.isArray(r?.suggest)) {
+        s.suggest = r.suggest;
+        if (!touched && r.initial) { pick(r.initial, r.initial.reason); return; }
+      }
+      paintChips();
+    });
     const nameField = el('input', { maxLength: 20, autocomplete: 'off' });
     nameField.setAttribute('aria-label', '名前');
     const newForm = el('div', { className: 'row new', hidden: true }, nameField);
@@ -403,6 +416,7 @@
       if (!res?.created) { msg.textContent = res?.error ?? '作れませんでした。'; return; }
       Object.assign(s, res);
       fill(s, '');
+      touched = true;
       nameField.value = '';
       newForm.hidden = true;
       pick({ category: res.created[0], subcategory: res.created[1] });
