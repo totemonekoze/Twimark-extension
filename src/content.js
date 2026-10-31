@@ -1,5 +1,5 @@
 // X・note・Qiita の共有メニューと共有の並びに「Twimarkに追加」を足す。押すと background.js が追加の画面を開く。
-// 投稿・記事のブックマーク（にあたる）ボタンの隣にも、Twimark のアイコンを足す（下の「投稿・記事のアイコン」。X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！）。
+// 投稿・記事のブックマーク（にあたる）ボタンの隣にも、Twimark のアイコンを足す（下の「投稿・記事のアイコン」。X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！・Google マップ・レシピとお店のサイト）。
 // 見た目を合わせるため、サイトの既存の項目を複製してラベルとアイコンだけを変える。見つからないときは何も足さない。
 // ほかの拡張と取り合わないよう、複製の元はメニューの最初の項目（サイトのもの。拡張は後ろに足す）にし、
 // 複製からは data-* の印（サイトの状態やほかの拡張の印）を外して、自分の印 data-twimark-item だけを付ける
@@ -216,13 +216,15 @@
 
   // 隣の項目（anchor）を複製してアイコンにする。文字（ラベル、いいねの数など）と吹き出しは消す。
   // glyph は差し替える元の絵（ふりーむ！は img、unityroom は Font Awesome の <i> か、それを置き換えた svg）
-  function makeIcon(anchor, url, glyph = 'svg') {
+  // label があれば、元の最初の文字をそれに替える（デリッシュキッチン・クラシルなどの文字つきのボタン）
+  function makeIcon(anchor, url, glyph = 'svg', label = '') {
     const item = anchor.cloneNode(true);
     item.querySelectorAll('[role="tooltip"], .tooltip').forEach((n) => n.remove());
     for (const el of [item, ...item.querySelectorAll('*')]) {
       DROPPED.forEach((a) => el.removeAttribute(a));
       for (const { name } of [...el.attributes]) if (name.startsWith('data-') && !KEPT_DATA.includes(name)) el.removeAttribute(name);
-      for (const a of ['aria-pressed', 'aria-haspopup', 'aria-expanded', 'href']) el.removeAttribute(a);
+      // サイトの押したときの動き（ホットペッパーの onclick、Google マップの jsaction）も外す
+      for (const a of ['aria-pressed', 'aria-haspopup', 'aria-expanded', 'href', 'onclick', 'jsaction', 'jslog']) el.removeAttribute(a);
       // サイトの計測の印（pixiv の gtm-main-bookmark など）は外す（押したときにサイトのブックマークとして数えられないように）
       for (const c of [...el.classList]) if (/^gtm-/.test(c)) el.classList.remove(c);
     }
@@ -243,7 +245,8 @@
     else (item.querySelector('button, a') ?? item).prepend(svg);
     // 文字は要素の中で子と並んでいることもある（GitHub の「Star」と数）ので、文字のノードごとに消す
     const texts = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
-    for (let t; (t = texts.nextNode());) if (!(t.parentNode instanceof SVGElement) && t.nodeValue.trim()) t.nodeValue = '';
+    let rest = label;
+    for (let t; (t = texts.nextNode());) if (!(t.parentNode instanceof SVGElement) && t.nodeValue.trim()) { t.nodeValue = rest; rest = ''; }
     item.setAttribute(ICON, '');
     // 同じ投稿・記事のアイコンは1ページに複数ある（note は記事の上・下・帯）。追加したら全部を保存済みにするための印
     item.dataset.twimarkUrl = url;
@@ -297,6 +300,17 @@
     .row.start { justify-content: flex-start; }
     .row.new input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid rgb(127 127 127 / .4); border-radius: 8px; font: inherit; background: Field; color: FieldText; }
     .x { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: none; font-size: 18px; line-height: 1; }
+    .similar-box { display: grid; gap: 8px; }
+    .similar-box[hidden] { display: none; }
+    .similar-box h3 { margin: 0; font-size: 14px; }
+    .similar { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; }
+    .similar-row { display: flex; gap: 8px; padding: 6px; border-radius: 8px; color: inherit; text-decoration: none; }
+    .similar-row:hover { background: rgb(127 127 127 / .12); }
+    .thumb { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 6px; object-fit: cover; background: rgb(127 127 127 / .16); font-weight: 600; }
+    .stack { display: grid; gap: 1px; min-width: 0; font-size: 12px; }
+    .stack b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+    .dot { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; }
+    .why { color: var(--accent); font-weight: 600; }
   `;
   const el = (tag, props = {}, ...kids) => {
     const n = Object.assign(document.createElement(tag), props);
@@ -440,19 +454,46 @@
     const [translationRow, wantTranslation] = toggle('翻訳する（日本語以外の本文だけ）');
     const msg = el('p', { className: 'err' });
     const addBtn = el('button', { className: 'primary', type: 'button', textContent: '追加' });
-    addBtn.addEventListener('click', async () => {
+    const addRow = el('div', { className: 'row' }, addBtn);
+    // 類似の投稿の確かめ（Twimark の定義 2026-10-31-009）。background.js が似ているものを返したら、「追加」の段の上に出す。
+    // 行を押すと元のページを新しいタブで開く。「追加する」は今の選択で保存し、「戻る」は閉じるだけ
+    const similarList = el('ul', { className: 'similar' });
+    const similarOk = el('button', { className: 'primary', type: 'button', textContent: '追加する' });
+    const similarBack = el('button', { type: 'button', textContent: '戻る' });
+    const similarBox = el('div', { className: 'similar-box', hidden: true }, el('h3', { id: 'tw-similar', textContent: '類似の投稿がありますが、追加しますか？' }), similarList, el('div', { className: 'row' }, similarBack, similarOk));
+    similarBox.setAttribute('role', 'alertdialog');
+    similarBox.setAttribute('aria-labelledby', 'tw-similar');
+    const similarRow = (s) => {
+      const a = el('a', { className: 'similar-row', href: s.url, target: '_blank', rel: 'noopener noreferrer' },
+        s.thumb ? el('img', { className: 'thumb', src: s.thumb, alt: '', referrerPolicy: 'no-referrer' }) : el('span', { className: 'thumb', textContent: s.initial }),
+        el('span', { className: 'stack' }, el('b', { textContent: s.label }), el('span', { className: 'muted', textContent: s.who }),
+          el('span', { className: 'muted' }, ...(s.color ? [el('i', { className: 'dot', style: `background:${s.color}` })] : []), `${s.place} · ${s.day}`),
+          el('span', { className: 'why', textContent: s.reason })));
+      return el('li', {}, a);
+    };
+    similarBack.addEventListener('click', () => { similarBox.hidden = true; addRow.hidden = false; addBtn.focus(); });
+    similarOk.addEventListener('click', () => { similarBox.hidden = true; addRow.hidden = false; send(true); });
+    const send = async (confirmed = false) => {
       addBtn.disabled = true;
       msg.textContent = '';
-      const res = await ask({ type: 'twimark-save', url, place: JSON.parse(select.value), text: text.value, wants: { summary: wantSummary.checked, translation: wantTranslation.checked } });
+      const res = await ask({ type: 'twimark-save', url, place: JSON.parse(select.value), text: text.value, wants: { summary: wantSummary.checked, translation: wantTranslation.checked }, confirmed });
       if (panel !== frame) return;
       addBtn.disabled = false;
+      if (res?.similar?.length) {
+        similarList.replaceChildren(...res.similar.map(similarRow));
+        similarBox.hidden = false;
+        addRow.hidden = true;
+        similarOk.focus();
+        return;
+      }
       if (res?.needText) { text.hidden = false; text.focus(); msg.textContent = '本文を貼り付けると追加できます。'; return; }
       if (!res?.ok) { msg.textContent = res?.error ?? '追加できませんでした。'; return; }
       for (const other of document.querySelectorAll(`[${ICON}][data-twimark-url]`)) if (other.dataset.twimarkUrl === url) paint(other, true);
       show(el('p', { className: 'ok', textContent: res.already ? 'もう保存されています' : '追加しました' }));
       setTimeout(() => { if (panel === frame) closePanel(); }, 1000);
-    });
-    show(suggestPart, select, reason, ...(creates.length ? [createRow, newForm] : []), text, summaryRow, translationRow, msg, el('div', { className: 'row' }, addBtn));
+    };
+    addBtn.addEventListener('click', () => send());
+    show(suggestPart, select, reason, ...(creates.length ? [createRow, newForm] : []), text, summaryRow, translationRow, msg, similarBox, addRow);
     select.focus();
   }
   // アクセントの地の上の文字。白と黒の読みやすいほう（shared/theme.js の accentSet と同じ決め方）
@@ -464,11 +505,11 @@
   }
 
   // 置く。anchor の直後（before があればその直前）。重ねて置かない
-  function place(anchor, url, before = null, glyph = 'svg') {
+  function place(anchor, url, before = null, glyph = 'svg', label = '') {
     if (!anchor?.parentElement || !url) return;
     const next = before ?? anchor.nextElementSibling;
     if (next?.hasAttribute?.(ICON) || anchor.parentElement.querySelector(`:scope > [${ICON}]`)) return;
-    const item = makeIcon(anchor, url, glyph);
+    const item = makeIcon(anchor, url, glyph, label);
     if (before) before.before(item);
     else anchor.after(item);
     return item;
@@ -588,10 +629,82 @@
     }
   }
 
+  // ---- Google マップ・レシピ・お店（Twimark の定義 2026-10-31-008。目印は docs/knowledge/share-menu-dom.md） ----
+  // Google マップ: 場所のパネルの操作の並び（ルート・保存・付近を検索・共有…）の「保存」の包みの右。絵は google-symbols の文字、名前は「Twimark」。
+  // 開いたまま別の場所へ移る（ページを読み直さない）ので、場所（名前と印）が変わったら置き直す。地図を動かしただけ（座標が変わる）では置き直さない
+  const gmapUrl = () => (/^\/maps\/place\/[^/]+\//.test(location.pathname) ? location.href : null);
+  const gmapPlace = (u) => (u ? `${new URL(u).pathname.split('/')[3]}${u.match(/!1s(0x[0-9a-f]+:0x[0-9a-f]+)/i)?.[1] ?? ''}` : '');
+  function iconsGmap() {
+    const url = gmapUrl();
+    for (const old of document.querySelectorAll(`[${ICON}][data-twimark-url]`)) if (gmapPlace(old.dataset.twimarkUrl) !== gmapPlace(url)) old.remove();
+    if (!url) return;
+    for (const b of document.querySelectorAll('button[data-value="保存"], button[data-value="保存済み"], button[data-value="Save"], button[data-value="Saved"]')) {
+      if (!b.closest(`[${ICON}]`)) place(b.parentElement, url, null, '.google-symbols', 'Twimark');
+    }
+  }
+  const COOKPAD_PAGE = /^\/(?:jp\/recipes|recipe)\/(\d{1,12})/;
+  const cookpadUrl = pageUrl(COOKPAD_PAGE, (m) => `https://cookpad.com/jp/recipes/${m[1]}`);
+  // クックパッド: ログインしていない表示には、レシピの「保存」がない。ログインした表示の目印は確かめていないので、文字が「保存」「保存済み」のボタンの右に置く
+  function iconsCookpad() {
+    const url = cookpadUrl();
+    if (!url) return;
+    for (const b of document.querySelectorAll('main button, main a')) {
+      if (/^(?:保存|保存する|保存済み)$/.test(b.textContent.trim()) && !b.closest(`[${ICON}]`)) place(b, url, null, 'svg', 'Twimark');
+    }
+  }
+  // デリッシュキッチン: レシピの題の下の「お気に入りに追加」（div.delish-favorite-button、幅いっぱい）の下に、同じ形の「Twimarkに追加」
+  const DELISH_PAGE = /^\/recipes\/(\d{1,20})/;
+  const delishUrl = pageUrl(DELISH_PAGE, (m) => `https://delishkitchen.tv/recipes/${m[1]}`);
+  function iconsDelish() {
+    const url = delishUrl();
+    if (!url) return;
+    for (const b of document.querySelectorAll('.delish-favorite-button')) if (!b.closest(`[${ICON}]`)) place(b, url, null, 'svg', 'Twimarkに追加');
+  }
+  // クラシル: レシピの「保存」（button.browsi_videos_show_bookmark_button、絵は svg、文字は「保存」と件数）の下に「Twimark」
+  const KURASHIRU_PAGE = /^\/recipes\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
+  const kurashiruUrl = pageUrl(KURASHIRU_PAGE, (m) => `https://www.kurashiru.com/recipes/${m[1]}`);
+  function iconsKurashiru() {
+    const url = kurashiruUrl();
+    if (!url) return;
+    for (const b of document.querySelectorAll('button[class*="bookmark_button"]')) if (!b.closest(`[${ICON}]`)) place(b, url, null, 'svg', 'Twimark');
+  }
+  // 楽天レシピ: レシピの「お気に入りに追加」（button.btn_fav_control）の右に「Twimark に追加」
+  const RAKUTEN_PAGE = /^\/recipe\/(\d{1,12})/;
+  const rakutenUrl = pageUrl(RAKUTEN_PAGE, (m) => `https://recipe.rakuten.co.jp/recipe/${m[1]}/`);
+  function iconsRakuten() {
+    const url = rakutenUrl();
+    if (!url) return;
+    for (const b of document.querySelectorAll('button.btn_fav_control')) if (!b.closest(`[${ICON}]`)) place(b, url, null, 'svg', 'Twimark に追加');
+  }
+  // ホットペッパーグルメ: お店の見出しの「検討リストへ保存」（li.btnShopHeaderKeeplist、文字の入った画像 130 × 20）の右。絵は高さに合わせて 20
+  const HOTPEPPER_PAGE = /^\/str(J\d{9})/;
+  const hotpepperUrl = pageUrl(HOTPEPPER_PAGE, (m) => `https://www.hotpepper.jp/str${m[1]}/`);
+  function iconsHotpepper() {
+    const url = hotpepperUrl();
+    if (!url) return;
+    for (const li of document.querySelectorAll('li.btnShopHeaderKeeplist')) {
+      const svg = li.closest(`[${ICON}]`) ? null : place(li, url, null, 'img')?.querySelector('svg[data-twimark-glyph]');
+      if (svg) { svg.setAttribute('width', '20'); svg.setAttribute('height', '20'); }
+    }
+  }
+  // ぐるなび: お店の「送る」「お気に入り」の並び（ul.tool-list）の「お気に入り」（#favorite-root の li）の右。絵は CSS の span、名前は「Twimark」
+  const GNAVI_PAGE = /^\/((?=[a-z0-9]*\d)[a-z0-9]{6,16})(?:\/|$)/;
+  const gnaviUrl = pageUrl(GNAVI_PAGE, (m) => `https://r.gnavi.co.jp/${m[1]}/`);
+  function iconsGnavi() {
+    const url = gnaviUrl();
+    if (!url) return;
+    for (const f of document.querySelectorAll('#favorite-root')) {
+      const li = f.closest('li');
+      if (li && !li.closest(`[${ICON}]`)) place(li, url, null, '.tool-list__icon', 'Twimark');
+    }
+  }
+
   const host = location.hostname;
   const SHARE = { 'qiita.com': scanQiita, 'note.com': scanNote };
   const ICONS = { 'qiita.com': iconsQiita, 'note.com': iconsNote, 'www.instagram.com': iconsInstagram, 'www.pixiv.net': iconsPixiv,
-    'github.com': iconsGithub, 'unityroom.com': iconsUnityroom, 'www.freem.ne.jp': iconsFreem };
+    'github.com': iconsGithub, 'unityroom.com': iconsUnityroom, 'www.freem.ne.jp': iconsFreem,
+    'www.google.com': iconsGmap, 'www.google.co.jp': iconsGmap, 'cookpad.com': iconsCookpad, 'delishkitchen.tv': iconsDelish, 'www.kurashiru.com': iconsKurashiru,
+    'recipe.rakuten.co.jp': iconsRakuten, 'www.hotpepper.jp': iconsHotpepper, 'r.gnavi.co.jp': iconsGnavi };
   const isX = /(^|\.)(x|twitter)\.com$/.test(host);
   // 共有メニューへの「Twimarkに追加」は X・note・Qiita だけ
   const scanShare = SHARE[host] ?? (isX ? scanX : () => {});

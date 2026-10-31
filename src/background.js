@@ -6,7 +6,7 @@ import { createStore, describeError, initialPlace, ops, PLACE_REASONS, PUBLIC_UR
 import { fetchMeta, parseUrl } from './shared/meta.js';
 import { DEFAULT_ACCENT } from './shared/theme.js';
 import { loadSettings, openLinkPage } from './account.js';
-import { bookmarkOf } from './bookmark.js';
+import { bookmarkOf, similarItems } from './bookmark.js';
 
 const TARGETS = [
   'https://x.com/*/status/*', 'https://twitter.com/*/status/*', 'https://mobile.twitter.com/*/status/*',
@@ -15,6 +15,10 @@ const TARGETS = [
   'https://www.pixiv.net/artworks/*', 'https://www.pixiv.net/*/artworks/*', 'https://pixiv.net/artworks/*', 'https://pixiv.net/*/artworks/*', 'https://booth.pm/*/items/*', 'https://*.booth.pm/items/*',
   // GitHub は予約の名前（settings など）も当たるが、そのページではポップアップがメモの追加になる
   'https://github.com/*/*', 'https://www.github.com/*/*', 'https://unityroom.com/games/*', 'https://www.freem.ne.jp/win/game/*', 'https://freem.ne.jp/win/game/*',
+  // Google マップの場所と短い URL、レシピ、お店（Twimark の定義 2026-10-31-008）
+  'https://www.google.com/maps/place/*', 'https://www.google.co.jp/maps/place/*', 'https://maps.google.com/maps/place/*', 'https://maps.app.goo.gl/*', 'https://goo.gl/maps/*',
+  'https://cookpad.com/jp/recipes/*', 'https://cookpad.com/recipe/*', 'https://delishkitchen.tv/recipes/*', 'https://www.kurashiru.com/recipes/*', 'https://recipe.rakuten.co.jp/recipe/*',
+  'https://www.hotpepper.jp/str*', 'https://r.gnavi.co.jp/*',
 ];
 const FRESH = 5 * 60 * 1000;
 
@@ -89,15 +93,22 @@ async function suggestFor({ url }) {
   return places(c.data, { site: parsed.site, url: item.url ?? parsed.url ?? url, author: item.author ?? { name: '', handle: parsed.handle ?? '' }, title: item.title ?? '', text: item.text ?? '' });
 }
 
-// その場の追加。本文を取れず、貼り付けもなければ needText を返す（小さな画面が本文の欄を出す）。wants は要約見出しを作る・翻訳する
-async function save({ url, place, text = '', wants = {} }) {
+// その場の追加。本文を取れず、貼り付けもなければ needText を返す（小さな画面が本文の欄を出す）。wants は要約見出しを作る・翻訳する。
+// 保存済みと似ているものがあれば、保存せずに similar（similarItems の行）を返す。小さな画面が確かめの段を出し、「追加する」で confirmed をつけて送り直す（Twimark の定義 2026-10-31-009）
+async function save({ url, place, text = '', wants = {}, confirmed = false }) {
   const parsed = parseUrl(url);
   const settings = await loadSettings();
   if (!parsed || !settings?.token) return { error: '追加できません。' };
   const item = await fetchMeta(parsed).catch(() => null);
   if (!item && !text.trim()) return { needText: true };
+  const bookmark = bookmarkOf(parsed, item, place, text.trim(), '', wants);
+  if (!confirmed) {
+    const c = await current();
+    const similar = c ? similarItems(c.data, bookmark) : [];
+    if (similar.length) return { similar };
+  }
   try {
-    await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.add(bookmarkOf(parsed, item, place, text.trim(), '', wants)));
+    await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.add(bookmark));
   } catch (err) {
     // ほかの端末で保存済み（覚えた内容が古い）。保存済みとして返し、読み直す
     if (err?.code !== 'duplicate') throw err;

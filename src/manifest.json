@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Twimark",
-  "version": "0.9.0",
-  "description": "X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！の投稿・記事・作品と、ほかのページのメモを Twimark に追加します。",
+  "version": "0.10.0",
+  "description": "X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！の投稿・記事・作品、Google マップの場所、レシピとお店のページと、ほかのページのメモを Twimark に追加します。",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -38,7 +38,18 @@
     "https://*.booth.pm/*",
     "https://github.com/*",
     "https://unityroom.com/*",
-    "https://www.freem.ne.jp/*"
+    "https://www.freem.ne.jp/*",
+    "https://cookpad.com/*",
+    "https://delishkitchen.tv/*",
+    "https://www.kurashiru.com/*",
+    "https://recipe.rakuten.co.jp/*",
+    "https://www.hotpepper.jp/*",
+    "https://r.gnavi.co.jp/*",
+    "https://www.google.com/maps/*",
+    "https://www.google.co.jp/maps/*",
+    "https://maps.google.com/*",
+    "https://maps.app.goo.gl/*",
+    "https://goo.gl/maps/*"
   ],
   "content_scripts": [
     {
@@ -54,7 +65,15 @@
         "https://*.booth.pm/*",
         "https://github.com/*",
         "https://unityroom.com/*",
-        "https://www.freem.ne.jp/*"
+        "https://www.freem.ne.jp/*",
+        "https://cookpad.com/*",
+        "https://delishkitchen.tv/*",
+        "https://www.kurashiru.com/*",
+        "https://recipe.rakuten.co.jp/*",
+        "https://www.hotpepper.jp/*",
+        "https://r.gnavi.co.jp/*",
+        "https://www.google.com/maps/*",
+        "https://www.google.co.jp/maps/*"
       ],
       "js": [
         "content.js"

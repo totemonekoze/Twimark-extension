@@ -112,6 +112,9 @@ export const colors = {
   shadow: ['rgba(0, 0, 0, 0.08)', 'rgba(0, 0, 0, 0)', 'rgba(61, 59, 53, 0.1)'],
 };
 
+// 並び順で割り当てるカテゴリの色の名前（view.js の toneOf。拡張の類似の確かめも使う）
+export const CYCLE = ['teal', 'purple', 'orange', 'blue', 'magenta', 'olive', 'amber', 'brown', 'red', 'green'];
+
 // カテゴリの色。{ 名前: [[ライトの文字, ライトの地], [ダークの文字, ダークの地], [クリームの文字, クリームの地]] }。割り当ては view.js の toneOf。
 // クリームは Portal の --tone-* で、ライトと同じ値（下で足す）
 export const tones = {

@@ -60,7 +60,16 @@
           <!-- 開くたびに両方 ON -->
           <label class="toggle"><input type="checkbox" role="switch" name="wantSummary" checked />要約見出しを作る</label>
           <label class="toggle"><input type="checkbox" role="switch" name="wantTranslation" checked />翻訳する<span class="muted">（日本語以外の本文だけ）</span></label>
-          <div class="actions">
+          <!-- 類似の投稿の確かめ（Twimark の定義 2026-10-31-009）。「追加」を押したとき、似ている保存済みのものがあれば、保存せずに「追加」の段の上に出す -->
+          <div class="similar" role="alertdialog" aria-labelledby="similar-title" data-similar hidden>
+            <p class="similar-title" id="similar-title">類似の投稿がありますが、追加しますか？</p>
+            <ul class="similar-list" data-similar-list></ul>
+            <div class="actions">
+              <button type="button" class="d-btn" data-similar-back>戻る</button>
+              <button type="button" class="d-btn primary" data-similar-ok>追加する</button>
+            </div>
+          </div>
+          <div class="actions" data-actions>
             <button type="button" class="d-btn" data-close>閉じる</button>
             <button type="submit" class="d-btn primary" data-submit>追加</button>
           </div>

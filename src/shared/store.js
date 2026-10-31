@@ -8,7 +8,11 @@ export const DEFAULT_CATEGORIES = ['新しいカテゴリ'];
 // memoTitle は独立のメモの題、note はブックマークへの書き添え
 export const LIMITS = { category: 20, categories: 30, subcategories: 30, text: 5000, memoTitle: 80, note: 2000, rules: 100, ruleValue: 100 };
 // memo は独立のメモ（URL のないこともあるカード）。ほかは追加できるサイト
-export const SITES = { x: 'X', note: 'note', qiita: 'Qiita', instagram: 'Instagram', pixiv: 'pixiv', booth: 'BOOTH', github: 'GitHub', unityroom: 'unityroom', freem: 'ふりーむ！', memo: 'メモ' };
+export const SITES = {
+  x: 'X', note: 'note', qiita: 'Qiita', instagram: 'Instagram', pixiv: 'pixiv', booth: 'BOOTH', github: 'GitHub', unityroom: 'unityroom', freem: 'ふりーむ！',
+  gmap: 'Google マップ', cookpad: 'クックパッド', delish: 'デリッシュキッチン', kurashiru: 'クラシル', rakutenrecipe: '楽天レシピ', hotpepper: 'ホットペッパーグルメ', gnavi: 'ぐるなび',
+  memo: 'メモ',
+};
 export const PUBLIC_URL = 'https://twimark.ho-service.workers.dev';
 
 // アプリへのログインの受け渡し（?app=）の戻り先として受け付けるもの。
@@ -234,6 +238,78 @@ export function suggestPlaces(data, b) {
   const rest = inferPlaces(data, b).filter((p) => !first.some((q) => samePlace(p, q))).map(({ category, subcategory }) => ({ category, subcategory, by: 'infer' }));
   return [...first, ...rest].slice(0, data.suggestCount ?? 3);
 }
+
+// ---- 類似の投稿（定義 2026-10-31-009。AI は使わない。おすすめと同じ termsOf の語） ----
+// 強い印（同じリンク先・同じ場所・同じ題）か、語の重なりが下限以上のものを似ているとする。語の重なりは、語の珍しさ（idf）で重みを付けたコサイン
+// （同じ作者なら SIMILAR_AUTHOR を足す）が SIMILAR_WORDS 以上で、かつ重なった語の珍しさの合計（1 つの保存にしかない語が 1 ほど）が SIMILAR_MASS 以上。
+// 短い日本語の文は語が2つほどしか取れず、よくある語2つだけでコサインが高くなるので、合計の下限で「珍しい語を含む重なり」だけにする。
+// 下限と重みは、作った組の試験（scripts/self-test.mjs）を通したうえで、scripts/similar-eval.mjs で本番のデータを読むだけで測って決めた（定義 2026-10-31-009 の完了報告）
+const SIMILAR_WORDS = 0.35;
+const SIMILAR_MASS = 1.2;
+const SIMILAR_AUTHOR = 0.15;
+const STRONG = 3;
+export const SIMILAR_REASONS = { link: '同じリンク', place: '同じ場所', title: '同じ題', words: '内容が近い' };
+// 場所・お店のサイト（題が場所・お店の名前）
+const PLACE_SITES = new Set(['gmap', 'hotpepper', 'gnavi']);
+// 外のリンクの「ホスト＋パス」。短縮・X の投稿・サイトのトップだけの URL は除く
+const SHORT_HOSTS = new Set(['t.co', 'bit.ly', 'goo.gl', 'ow.ly', 'buff.ly', 'tinyurl.com', 'amzn.to', 'is.gd', 'dlvr.it', 'ift.tt']);
+function linkOf(raw) {
+  try {
+    const u = new URL(raw.replace(/[)\]）」』。、,.!?！？]+$/u, ''));
+    const host = u.hostname.toLowerCase().replace(/^www\./, '');
+    const path = u.pathname.replace(/\/+$/, '');
+    if (!path || SHORT_HOSTS.has(host) || (/^(?:(?:mobile\.)?twitter|x)\.com$/.test(host) && /\/status\//.test(path))) return null;
+    return `${host}${path}`.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+const linksOf = (text) => new Set((String(text ?? '').match(/https?:\/\/[^\s<>"'「」]+/g) ?? []).map(linkOf).filter(Boolean));
+function similarFacts(b) {
+  const words = new Set([...termsOf(b)].filter((t) => t[0] === 'w' || t[0] === 't'));
+  const links = linksOf(`${b?.title ?? ''}\n${b?.text ?? ''}\n${b?.url ?? ''}`);
+  const place = PLACE_SITES.has(b?.site) ? compact(b?.title) : '';
+  const handle = foldRule(b?.author?.handle).replace(/^@/, '');
+  return { words, links, place: place.length >= 4 ? place : '', title: compact(b?.title), body: compact(`${b?.title ?? ''}\n${b?.text ?? ''}`), author: handle || foldRule(b?.author?.name) };
+}
+const similarCache = new WeakMap();
+function similarStats(data) {
+  let st = similarCache.get(data);
+  if (st) return st;
+  const items = data.bookmarks.filter((x) => x.site !== 'memo').map((x) => ({ x, f: similarFacts(x) }));
+  const df = new Map();
+  for (const { f } of items) for (const t of f.words) df.set(t, (df.get(t) ?? 0) + 1);
+  st = { items, df };
+  similarCache.set(data, st);
+  return st;
+}
+// b（pickByRules と同じ形と id）に似ている保存済みのもの。[{ bookmark, score, reason }] を点の多い順に limit まで。独立のメモと、b と同じ id は数えない
+export function similarBookmarks(data, b, { limit = 3 } = {}) {
+  const { items, df } = similarStats(data);
+  const me = similarFacts(b);
+  const n = items.length + 1;
+  const idf = (t) => Math.log(1 + n / ((df.get(t) ?? 0) + 1));
+  // 珍しさの合計は、どの語にもある最大の idf（log(1 + n)）を 1 として数える（保存の数で下限が変わらないように）
+  const top = Math.log(1 + n);
+  const norm = (words) => Math.sqrt([...words].reduce((s, t) => s + idf(t) ** 2, 0));
+  const mine = norm(me.words);
+  const out = [];
+  for (const { x, f } of items) {
+    if (x.id === b?.id) continue;
+    const reason = [...me.links].some((l) => f.links.has(l)) ? 'link'
+      : (me.place && f.body.includes(me.place)) || (f.place && me.body.includes(f.place)) ? 'place'
+        : me.title && me.title === f.title ? 'title' : null;
+    let words = 0;
+    let mass = 0;
+    for (const t of me.words) if (f.words.has(t)) { words += idf(t) ** 2; mass += idf(t) / top; }
+    words = words && mine ? words / (mine * norm(f.words)) : 0;
+    if (words && me.author && me.author === f.author) words += SIMILAR_AUTHOR;
+    if (!reason && (words < SIMILAR_WORDS || mass < SIMILAR_MASS)) continue;
+    out.push({ bookmark: x, score: (reason ? STRONG : 0) + words, reason: reason ?? 'words' });
+  }
+  return out.sort((p, q) => q.score - p.score || String(q.bookmark.savedAt).localeCompare(String(p.bookmark.savedAt))).slice(0, limit);
+}
+
 // 追加の画面の初期の選択（定義 2026-10-30-004・2026-10-31-001・2026-10-31-004）。b は pickByRules と同じ形。自動整理が ON でルールが当たればその組、
 // でなければ「おすすめを最初から選ぶ」が ON で推し量った一番が確かならその組（おすすめの数が OFF でも）。どちらもなければ null（前回の組のまま）。
 // 利用者が自分で選んだあとは当て直さない（画面が見る）

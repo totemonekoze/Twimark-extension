@@ -3,7 +3,7 @@ title: X・note・Qiitaの共有メニューの目印
 type: knowledge
 confidence: medium
 created: 2026-09-24
-last_verified: 2026-10-26
+last_verified: 2026-10-31
 ---
 
 # X・note・Qiitaの共有メニューとブックマークのボタンの目印
@@ -73,3 +73,13 @@ last_verified: 2026-10-26
 ## 確かめ方
 
 内蔵ブラウザで対象のページを開き、`content.js` の中身を `const chrome = { runtime: { sendMessage: async (m) => { window.__sent = m; } } };` を先に置いて流し込むと、差し込みと送られるURLを確かめられる。ペインが隠れているとページが止まり、スクリプトが終わらないことがある（スクリーンショットを1枚撮ると動き出す）。
+
+## Google マップ・レシピ・お店（2026-10-31、ログインしていない表示。Twimark の定義 2026-10-31-008）
+
+- Google マップ: 場所のパネルの操作の並び（ルート・乗換／保存／付近を検索／モバイルデバイスに送信／共有）は、`div` の横並び（flex）。「保存」は `button[data-value="保存"]`（`aria-label` も「保存」。英語は「Save」）で、包みの `div` が並びの1つ。絵は `span.google-symbols` のフォントの文字、名前は `div.fontLabelMedium`。押したときの動きは `jsaction` 属性（ページ全体の受け手が読む）なので、複製からは `jsaction`・`jslog` を外す。開いたまま別の場所へ移る（ページを読み直さない）ので、場所（パスの名前と `!1s` の印）が変わったら置き直す。地図を動かすと URL の座標だけが変わる。
+- クックパッド: ログインしていない表示には、レシピの「保存」がない（あるのはログインへの誘いの文だけ）。ログインした表示の目印は確かめていない（文字が「保存」「保存する」「保存済み」のボタンを見る）。
+- デリッシュキッチン: 題の下の「お気に入りに追加」は `div.delish-favorite-button`（ボタンの要素ではない。絵は `svg.icon-favorite`、幅いっぱい 312 × 40）。親は縦に積む block なので、その下に同じ形の「Twimarkに追加」を置く。
+- クラシル: 「保存」と件数のボタンは `button.browsi_videos_show_bookmark_button`（ほかのクラスは毎回変わる値）。親は2つの子のグリッドで、ボタンは幅いっぱい。その下に「Twimark」を置く。
+- 楽天レシピ: レシピの「お気に入りに追加」は `button.btn_fav_control`（`div.recipe_info_text__note` の中）。ページの上の「お気に入り」（`a.ico_bookmark`）はお気に入りの一覧へのリンクなので使わない。
+- ホットペッパーグルメ: お店の見出しの右の「ブックマーク追加」「検討リストへ保存」は `ul.shopHeaderLeadBtn` の `li`（float、幅 130 × 20 の文字の画像）。「検討リストへ保存」は `li.btnShopHeaderKeeplist` で、押したときの動きは `a` の `onclick`（複製からは外す）。`li` は CSS で幅 130 と「保存済」の背景画像を持つので、複製では外す（`content.css`）。
+- ぐるなび: お店の「送る」「お気に入り」は `ul.tool-list`（flex）の `li.tool-list__item`。「お気に入り」は `#favorite-root` の中の `a.btn-basic`（絵は CSS の `span.tool-list__icon`、名前は `p.tool-list__btn`）。`li` を複製して右に置く。

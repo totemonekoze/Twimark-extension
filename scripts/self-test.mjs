@@ -86,18 +86,41 @@ test('拡張: manifest の参照とページの import が、すべて src の�
 // ---- 定義 2026-10-24-003（投稿・記事のブックマークのアイコン） ----
 // 定義 2026-10-25-009 で、対象に Instagram・pixiv・BOOTH を足した。版は 2026-10-25-010 で 0.6.1、その追記で 0.6.2、そのレビューの差し戻しで 0.6.3 に
 // 定義 2026-10-26-002 で GitHub・unityroom・ふりーむ！を足し、006（メモの追加）と合わせて版を 0.7.0 に。007（要約見出しを作る・翻訳するのトグル）で 0.8.0 に
-test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！だけ。アイコンの絵が4つあり、版は 0.9.0', () => {
+// Twimark の定義 2026-10-31-008 で Google マップ・レシピ・お店を足し、009（類似の確かめ）と合わせて版を 0.10.0 に
+test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！・Google マップ・レシピとお店のサイトだけ。アイコンの絵が4つあり、版は 0.10.0', () => {
   const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
   const content = manifest.content_scripts.find((s) => s.js.includes('content.js'));
-  for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm|github\.com|unityroom\.com|www\.freem\.ne\.jp)\/\*$/, m);
-  for (const site of ['x.com', 'note.com', 'qiita.com', 'www.instagram.com', 'www.pixiv.net', 'booth.pm', 'github.com', 'unityroom.com', 'www.freem.ne.jp']) {
+  for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm|github\.com|unityroom\.com|www\.freem\.ne\.jp|cookpad\.com|delishkitchen\.tv|www\.kurashiru\.com|recipe\.rakuten\.co\.jp|www\.hotpepper\.jp|r\.gnavi\.co\.jp|www\.google\.(?:com|co\.jp)\/maps)\/\*$/, m);
+  // Google マップの短い URL の転送の先を読むため
+  for (const h of ['https://maps.app.goo.gl/*', 'https://goo.gl/maps/*', 'https://maps.google.com/*']) assert.ok(manifest.host_permissions.includes(h), h);
+  for (const site of ['x.com', 'note.com', 'qiita.com', 'www.instagram.com', 'www.pixiv.net', 'booth.pm', 'github.com', 'unityroom.com', 'www.freem.ne.jp',
+    'cookpad.com', 'delishkitchen.tv', 'www.kurashiru.com', 'recipe.rakuten.co.jp', 'www.hotpepper.jp', 'r.gnavi.co.jp', 'www.google.com/maps', 'www.google.co.jp/maps']) {
     assert.ok(content.matches.includes(`https://${site}/*`), site);
     // 拡張が下見を自分で取るので、取得先のホストも許す
     if (site !== 'x.com') assert.ok(manifest.host_permissions.includes(`https://${site}/*`), `host_permissions: ${site}`);
   }
   assert.deepEqual(Object.keys(manifest.icons), ['16', '32', '48', '128']);
   for (const p of Object.values(manifest.icons)) assert.ok(existsSync(new URL(`../src/${p}`, import.meta.url)), p);
-  assert.equal(manifest.version, '0.9.0');
+  assert.equal(manifest.version, '0.10.0');
+});
+test('拡張: Google マップ・レシピ・お店のボタンの目印と URL の形。右クリックの対象にもある（Twimark の定義 2026-10-31-008）', () => {
+  const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
+  for (const sel of ['button[data-value="保存"]', "'.google-symbols', 'Twimark'", '.delish-favorite-button', 'button[class*="bookmark_button"]', 'button.btn_fav_control', 'li.btnShopHeaderKeeplist', '#favorite-root', "'.tool-list__icon'",
+    "'onclick', 'jsaction', 'jslog'", "'www.google.com': iconsGmap", "'r.gnavi.co.jp': iconsGnavi"]) assert.ok(js.includes(sel), sel);
+  const css = readFileSync(new URL('../src/content.css', import.meta.url), 'utf8');
+  assert.ok(css.includes('li.btnShopHeaderKeeplist[data-twimark-icon] { width: auto; background: none !important; }'));
+  // content.js が作る URL は parseUrl が受ける正規の形（保存する url と同じ）
+  for (const [name, path, url] of [['COOKPAD_PAGE', '/jp/recipes/26607470', 'https://cookpad.com/jp/recipes/26607470'], ['DELISH_PAGE', '/recipes/119065514638049702', 'https://delishkitchen.tv/recipes/119065514638049702'],
+    ['KURASHIRU_PAGE', '/recipes/164f3c26-0fb1-49f6-a19d-8ca27c8b2b61', 'https://www.kurashiru.com/recipes/164f3c26-0fb1-49f6-a19d-8ca27c8b2b61'], ['RAKUTEN_PAGE', '/recipe/1490019223/', 'https://recipe.rakuten.co.jp/recipe/1490019223/'],
+    ['HOTPEPPER_PAGE', '/strJ000814760/map/', 'https://www.hotpepper.jp/strJ000814760/'], ['GNAVI_PAGE', '/1jyjvma40000/', 'https://r.gnavi.co.jp/1jyjvma40000/']]) {
+    const source = js.match(new RegExp(`const ${name} = (\\/.+\\/);`))[1];
+    assert.ok(new RegExp(source.slice(1, -1)).test(path), path);
+    assert.equal(parseUrl(url)?.url, url);
+  }
+  assert.ok(!/^\/((?=[a-z0-9]*\d)[a-z0-9]{6,16})(?:\/|$)/.test('/area/jp/rs/'));
+  const bg = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
+  for (const p of ["'https://www.google.com/maps/place/*'", "'https://maps.app.goo.gl/*'", "'https://cookpad.com/jp/recipes/*'", "'https://delishkitchen.tv/recipes/*'", "'https://www.kurashiru.com/recipes/*'",
+    "'https://recipe.rakuten.co.jp/recipe/*'", "'https://www.hotpepper.jp/str*'", "'https://r.gnavi.co.jp/*'"]) assert.ok(bg.includes(p), p);
 });
 test('拡張: GitHub・unityroom・ふりーむ！のボタンの目印と URL の形。右クリックの対象にもある', () => {
   const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
@@ -112,6 +135,24 @@ test('拡張: GitHub・unityroom・ふりーむ！のボタンの目印と URL �
   }
   const bg = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
   for (const p of ["'https://github.com/*/*'", "'https://unityroom.com/games/*'", "'https://www.freem.ne.jp/win/game/*'"]) assert.ok(bg.includes(p), p);
+});
+test('拡張: 類似の投稿の確かめ。similarItems は表示に要る項目だけ（色・わけ・カテゴリ）。ポップアップと小さな画面は「追加する」「戻る」を出し、小さな画面は confirmed で送り直す（Twimark の定義 2026-10-31-009）', async () => {
+  const { similarItems } = await import('../src/bookmark.js');
+  const data = { categories: ['ツール', '食べ物'], subcategories: {}, categoryColors: { 食べ物: '#AA3300' }, bookmarks: [
+    { id: 'x:1', site: 'x', url: 'https://x.com/a/status/1', author: { name: 'A', handle: 'a' }, title: '', text: 'この記事 https://zenn.dev/foo/articles/abc', category: 'ツール', subcategory: null, savedAt: '2026-10-30T01:00:00Z', photos: [{ url: 'https://pbs.twimg.com/1.jpg' }] },
+    { id: 'hotpepper:J1', site: 'hotpepper', url: 'https://www.hotpepper.jp/strJ000000001/', author: { name: '', handle: '' }, title: 'ヒマラヤカリー 白金店', text: '', category: '食べ物', subcategory: null, savedAt: '2026-10-29T01:00:00Z' },
+  ] };
+  const [link] = similarItems(data, { id: 'x:2', site: 'x', url: 'https://x.com/b/status/2', author: { name: 'B', handle: 'b' }, title: '', text: 'https://zenn.dev/foo/articles/abc を読んだ' });
+  assert.deepEqual(link, { id: 'x:1', url: 'https://x.com/a/status/1', thumb: 'https://pbs.twimg.com/1.jpg', initial: 'X', label: 'この記事 https://zenn.dev/foo/articles/abc', who: 'A · @a · X', place: 'ツール', color: '#3a676b', day: '2026/10/30', reason: '同じリンク' });
+  const [shop] = similarItems(data, { id: 'x:3', site: 'x', url: 'https://x.com/c/status/3', author: { name: 'C', handle: 'c' }, title: '', text: 'ヒマラヤカリー白金店のナン' });
+  assert.deepEqual([shop.place, shop.color, shop.reason, shop.who], ['食べ物', '#AA3300', '同じ場所', 'ホットペッパーグルメ']);
+  assert.deepEqual(similarItems(data, { id: 'x:4', site: 'x', url: 'https://x.com/d/status/4', author: { name: 'D', handle: 'd' }, title: '', text: '関係のない話' }), []);
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const [popup, html, content, bg] = [read('../src/popup.js'), read('../src/popup.html'), read('../src/content.js'), read('../src/background.js')];
+  for (const part of ['類似の投稿がありますが、追加しますか？', 'data-similar-back>戻る</button>', 'data-similar-ok>追加する</button>', 'role="alertdialog"']) assert.ok(html.includes(part), part);
+  assert.ok(popup.includes('similarItems(data, bookmarkOf(') && popup.includes("if (!similar.length) { saveNow(); return; }"));
+  for (const part of ['類似の投稿がありますが、追加しますか？', "textContent: '追加する'", "textContent: '戻る'", 'send(true)', 'confirmed });', "setAttribute('role', 'alertdialog')"]) assert.ok(content.includes(part), part);
+  assert.ok(bg.includes('if (!confirmed) {') && bg.includes('similarItems(c.data, bookmark)'));
 });
 test('拡張: bookmarkOf はポップアップと小さな画面で同じブックマークを作る（取れなければ貼り付けの本文）', async () => {
   const { bookmarkOf } = await import('../src/bookmark.js');

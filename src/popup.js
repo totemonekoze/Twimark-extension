@@ -6,7 +6,7 @@
 import { createStore, describeError, initialPlace, memoId, ops, PLACE_REASONS, SITES, PUBLIC_URL, suggestPlaces } from './shared/store.js';
 import { parseUrl, fetchMeta } from './shared/meta.js';
 import { clearSettings, hostAllowed, linkWithToken, loadSettings, loginWithPassword, openLinkPage } from './account.js';
-import { bookmarkOf } from './bookmark.js';
+import { bookmarkOf, similarItems } from './bookmark.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('[data-status]');
@@ -210,11 +210,36 @@ async function showAdd(settings) {
   setupPlaces(store, data, { site: parsed.site, url: item?.url ?? parsed.url ?? target.url, author: item?.author ?? { name: '', handle: parsed.handle ?? '' }, title: item?.title ?? '', text: item?.text ?? '' });
   select.focus();
 
-  form.onsubmit = async (e) => {
+  // 類似の投稿の確かめ（Twimark の定義 2026-10-31-009）。「追加」で似ているものがあれば保存せずに出す。出したあとに選択やメモを変えてもよく、
+  // 「追加する」はそのときの値で保存する。「戻る」は閉じるだけ
+  const similarBox = $('[data-similar]');
+  const closeSimilar = () => { similarBox.hidden = true; $('[data-actions]').hidden = false; };
+  const node = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
+  const similarRow = (s) => {
+    const dot = s.color ? [node('i', { className: 'dot' })] : [];
+    if (dot[0]) dot[0].style.background = s.color;
+    return node('li', {}, node('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' },
+      s.thumb ? node('img', { className: 'thumb', src: s.thumb, alt: '', referrerPolicy: 'no-referrer' }) : node('span', { className: 'thumb', textContent: s.initial }),
+      node('span', { className: 'stack' }, node('b', { textContent: s.label }), node('span', { className: 'muted', textContent: s.who }),
+        node('span', { className: 'muted' }, ...dot, `${s.place} · ${s.day}`), node('span', { className: 'why', textContent: s.reason }))));
+  };
+  $('[data-similar-back]').onclick = () => { closeSimilar(); submit.focus(); };
+  $('[data-similar-ok]').onclick = () => { closeSimilar(); saveNow(); };
+
+  form.onsubmit = (e) => {
     e.preventDefault();
-    const [category, subcategory] = JSON.parse(select.value);
     const pasted = form.elements.namedItem('text').value.trim();
     if (!item && !pasted) { status('本文を貼り付けてください。', 'error'); return; }
+    const similar = similarItems(data, bookmarkOf(parsed, item, JSON.parse(select.value), pasted));
+    if (!similar.length) { saveNow(); return; }
+    $('[data-similar-list]').replaceChildren(...similar.map(similarRow));
+    similarBox.hidden = false;
+    $('[data-actions]').hidden = true;
+    $('[data-similar-ok]').focus();
+  };
+  async function saveNow() {
+    const [category, subcategory] = JSON.parse(select.value);
+    const pasted = form.elements.namedItem('text').value.trim();
     const wants = { summary: form.elements.namedItem('wantSummary').checked, translation: form.elements.namedItem('wantTranslation').checked };
     const bookmark = bookmarkOf(parsed, item, [category, subcategory], pasted, form.elements.namedItem('note').value, wants);
     submit.disabled = true;
@@ -230,7 +255,7 @@ async function showAdd(settings) {
       status(failure(err, '保存できませんでした。'), 'error');
       submit.disabled = err?.code === 'duplicate';
     }
-  };
+  }
 }
 
 // 対応していないページ: 独立のメモ（題 80 文字・本文 5000 文字、どちらかが要る。URL は空か https）。同じ URL のメモがあっても止めない

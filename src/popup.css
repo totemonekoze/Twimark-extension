@@ -28,3 +28,15 @@ html.window body { width: auto; }
 /* 要約見出しを作る・翻訳する */
 .toggle { display: flex; align-items: center; gap: .45rem; }
 .toggle input { margin: 0; accent-color: var(--accent); }
+/* 類似の投稿の確かめ（Twimark の定義 2026-10-31-009）。似ている投稿を1行ずつ（小さな絵・題・作者とサイト・カテゴリと保存日・わけ）。押すと元のページ */
+.similar { display: grid; gap: .5rem; padding: .7rem .8rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.similar[hidden] { display: none; }
+.similar-title { margin: 0; font-weight: 650; }
+.similar-list { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
+.similar-list a { display: flex; gap: .55rem; padding: .3rem; border-radius: 8px; color: inherit; text-decoration: none; }
+.similar-list a:hover { background: var(--accent-soft); }
+.similar-list .thumb { display: grid; place-items: center; flex: none; width: 2.4rem; height: 2.4rem; border-radius: 6px; object-fit: cover; background: var(--line); font-weight: 600; }
+.similar-list .stack { display: grid; gap: .05rem; min-width: 0; font-size: .78rem; }
+.similar-list .stack b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .86rem; }
+.similar-list .dot { display: inline-block; width: .5rem; height: .5rem; margin-right: .3rem; border-radius: 50%; }
+.similar-list .why { color: var(--accent-ink); font-weight: 600; }

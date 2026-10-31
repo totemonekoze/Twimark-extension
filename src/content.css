@@ -3,3 +3,7 @@
 [role='menuitem'][data-twimark-item]:hover { background-color: rgb(127 127 127 / .12); }
 /* Instagram の保存のボタンの包み。Twimark のアイコンを保存の左に横並びで置く（content.js の iconsInstagram） */
 [data-twimark-row] { display: flex; align-items: center; gap: 12px; }
+/* デリッシュキッチン・クラシルの「お気に入りに追加」「保存」は幅いっぱいのボタン。その下に置く Twimark のボタンとの間（content.js の iconsDelish・iconsKurashiru） */
+.delish-favorite-button[data-twimark-icon], button[class*="bookmark_button"][data-twimark-icon] { margin-top: 8px; }
+/* ホットペッパーグルメの「検討リストへ保存」の li は、幅 130 と「保存済」の背景画像を持つ。複製した Twimark のボタンでは外す（content.js の iconsHotpepper） */
+li.btnShopHeaderKeeplist[data-twimark-icon] { width: auto; background: none !important; }
