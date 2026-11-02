@@ -485,7 +485,8 @@ export function normalize(raw) {
   const addCreate = ADD_CREATES.includes(raw?.addCreate) ? raw.addCreate : 'both';
   const suggestCount = SUGGEST_COUNTS.includes(raw?.suggestCount) ? raw.suggestCount : 3;
   const similarLabels = (Array.isArray(raw?.similarLabels) ? raw.similarLabels : []).filter((l) => Array.isArray(l) && typeof l[0] === 'string' && typeof l[1] === 'string' && typeof l[2] === 'boolean');
-  return { categories, subcategories, categoryColors, accent: hex(raw?.accent), accentOn: hex(raw?.accentOn), theme, pinnedCategories, categorySort, chipLayout, autoSort, rules, suggestFirst, addCreate, suggestCount, similarLabels, bookmarks };
+  const updatesSeen = typeof raw?.updatesSeen === 'string' ? raw.updatesSeen : null;
+  return { categories, subcategories, categoryColors, accent: hex(raw?.accent), accentOn: hex(raw?.accentOn), theme, pinnedCategories, categorySort, chipLayout, autoSort, rules, suggestFirst, addCreate, suggestCount, similarLabels, updatesSeen, bookmarks };
 }
 
 // ブックマークのサブカテゴリのうち、今もあるものだけ（なければ null）
@@ -529,6 +530,8 @@ export const ops = {
   setAddCreate: (value) => ({ op: 'setAddCreate', args: [value] }),
   // おすすめの数（SUGGEST_COUNTS のどれか。定義 2026-10-31-004）
   setSuggestCount: (n) => ({ op: 'setSuggestCount', args: [n] }),
+  // 最後に知らせたアップデートの日（YYYY-MM-DD。定義 2026-11-03-001）
+  setUpdatesSeen: (date) => ({ op: 'setUpdatesSeen', args: [date] }),
   // テーマ（'system' | 'light' | 'dark' | 'cream'）
   setTheme: (value) => ({ op: 'setTheme', args: [value] }),
   // カテゴリを別のカテゴリの下へ入れる・サブカテゴリをカテゴリに戻す・サブカテゴリを別のカテゴリへ移す
