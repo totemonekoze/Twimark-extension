@@ -2,11 +2,11 @@
 // 投稿・記事のアイコン（content.js）の問い合わせも受ける: 保存済みか（twimark-state）、その場の追加（twimark-save）、
 // 連携の画面（twimark-link）、一覧で開く（twimark-open）、その場でカテゴリ・サブカテゴリを作る（twimark-create）、下見を見たおすすめ（twimark-suggest）。/api/data は覚えておき、5分たつか、追加したら読み直す。
 // module の service worker（manifest の background.type）なので、shared/ を import できる
-import { createStore, describeError, initialPlace, ops, PLACE_REASONS, PUBLIC_URL, suggestPlaces } from './shared/store.js';
+import { addTrace, createStore, describeError, initialPlace, ops, PLACE_REASONS, PUBLIC_URL, suggestPlaces } from './shared/store.js';
 import { fetchMeta, parseUrl } from './shared/meta.js';
 import { DEFAULT_ACCENT } from './shared/theme.js';
 import { loadSettings, openLinkPage } from './account.js';
-import { bookmarkOf, similarItems } from './bookmark.js';
+import { bookmarkOf, similarItems, similarOfItems } from './bookmark.js';
 
 const TARGETS = [
   'https://x.com/*/status/*', 'https://twitter.com/*/status/*', 'https://mobile.twitter.com/*/status/*',
@@ -102,13 +102,13 @@ async function save({ url, place, text = '', wants = {}, confirmed = false }) {
   const item = await fetchMeta(parsed).catch(() => null);
   if (!item && !text.trim()) return { needText: true };
   const bookmark = bookmarkOf(parsed, item, place, text.trim(), '', wants);
-  if (!confirmed) {
-    const c = await current();
-    const similar = c ? similarItems(c.data, bookmark) : [];
-    if (similar.length) return { similar };
-  }
+  const c = await current();
+  const similar = c ? similarItems(c.data, bookmark) : [];
+  if (!confirmed && similar.length) return { similar };
+  // 答えの記録（Twimark の定義 2026-11-02-002）。confirmed なら、出した類似に「追加する」を選んだ
+  const trace = c ? addTrace(c.data, bookmark, { client: 'ext-inline', similar: confirmed ? similarOfItems(similar) : [] }) : undefined;
   try {
-    await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.add(bookmark));
+    await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.add(bookmark, trace));
   } catch (err) {
     // ほかの端末で保存済み（覚えた内容が古い）。保存済みとして返し、読み直す
     if (err?.code !== 'duplicate') throw err;
@@ -117,6 +117,15 @@ async function save({ url, place, text = '', wants = {}, confirmed = false }) {
   }
   await chrome.storage.local.set({ lastPlace: JSON.stringify(place) });
   forget();
+  return { ok: true };
+}
+
+// 小さな画面の類似の確かめで「戻る」を押した（記録だけ。Twimark の定義 2026-11-02-002）。similar は出した similarItems の行
+async function similarBack({ url, similar = [] }) {
+  const parsed = parseUrl(url);
+  const settings = await loadSettings();
+  if (!parsed || !settings?.token) return { ok: false };
+  await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.similarBack(parsed.id, similarOfItems(similar)));
   return { ok: true };
 }
 
@@ -146,6 +155,7 @@ const HANDLERS = {
   'twimark-state': (m) => state(m.url),
   'twimark-suggest': (m) => suggestFor(m),
   'twimark-save': (m) => save(m),
+  'twimark-similar-back': (m) => similarBack(m),
   'twimark-link': () => openLinkPage(),
   'twimark-open': (m) => openList(m),
   'twimark-create': (m) => create(m),

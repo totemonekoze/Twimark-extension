@@ -283,31 +283,76 @@ function similarStats(data) {
   similarCache.set(data, st);
   return st;
 }
-// b（pickByRules と同じ形と id）に似ている保存済みのもの。[{ bookmark, score, reason }] を点の多い順に limit まで。独立のメモと、b と同じ id は数えない
-export function similarBookmarks(data, b, { limit = 3 } = {}) {
+// 2つの事実（similarFacts）の比べ（data の語の数え上げを使う）。{ reason（強い印か null）, words（コサインと同じ作者の足し）, mass（珍しさの合計） }
+function similarMeasure(data) {
   const { items, df } = similarStats(data);
-  const me = similarFacts(b);
   const n = items.length + 1;
   const idf = (t) => Math.log(1 + n / ((df.get(t) ?? 0) + 1));
   // 珍しさの合計は、どの語にもある最大の idf（log(1 + n)）を 1 として数える（保存の数で下限が変わらないように）
   const top = Math.log(1 + n);
   const norm = (words) => Math.sqrt([...words].reduce((s, t) => s + idf(t) ** 2, 0));
-  const mine = norm(me.words);
+  return {
+    items,
+    compare(me, f) {
+      const reason = [...me.links].some((l) => f.links.has(l)) ? 'link'
+        : (me.place && f.body.includes(me.place)) || (f.place && me.body.includes(f.place)) ? 'place'
+          : me.title && me.title === f.title ? 'title' : null;
+      let words = 0;
+      let mass = 0;
+      for (const t of me.words) if (f.words.has(t)) { words += idf(t) ** 2; mass += idf(t) / top; }
+      const mine = norm(me.words);
+      words = words && mine ? words / (mine * norm(f.words)) : 0;
+      if (words && me.author && me.author === f.author) words += SIMILAR_AUTHOR;
+      return { reason, words, mass };
+    },
+  };
+}
+// 似ているとするか。下限を変えて測るときは words・mass を渡す（scripts/similar-eval.mjs）
+export const similarPasses = (s, words = SIMILAR_WORDS, mass = SIMILAR_MASS) => Boolean(s.reason) || (s.words >= words && s.mass >= mass);
+const similarScore = (s) => (s.reason ? STRONG : 0) + s.words;
+const newerSaved = (p, q) => String(q.bookmark.savedAt).localeCompare(String(p.bookmark.savedAt));
+// b と保存済み（独立のメモと、b と同じ id を除く）をすべて比べる
+function similarAll(data, b) {
+  const m = similarMeasure(data);
+  const me = similarFacts(b);
+  return m.items.filter(({ x }) => x.id !== b?.id).map(({ x, f }) => ({ bookmark: x, ...m.compare(me, f) }));
+}
+// b（pickByRules と同じ形と id）に似ている保存済みのもの。[{ bookmark, score, reason }] を点の多い順に limit まで。独立のメモと、b と同じ id は数えない
+export function similarBookmarks(data, b, { limit = 3 } = {}) {
+  return similarAll(data, b).filter((s) => similarPasses(s))
+    .map((s) => ({ bookmark: s.bookmark, score: similarScore(s), reason: s.reason ?? 'words' }))
+    .sort((p, q) => q.score - p.score || newerSaved(p, q)).slice(0, limit);
+}
+// 下限に届かなかったもののうち、語の重なりのある上位3件（定義 2026-11-02-002 の記録の near）。[{ id, words, mass }]
+const round3 = (v) => Math.round(v * 1000) / 1000;
+export function similarNear(data, b) {
+  return similarAll(data, b).filter((s) => !similarPasses(s) && s.words > 0)
+    .sort((p, q) => q.words - p.words).slice(0, 3).map((s) => ({ id: s.bookmark.id, words: round3(s.words), mass: round3(s.mass) }));
+}
+// 保存済みの2つの比べ（a の事実から b を見る）。scripts/similar-eval.mjs が見直しの答えを測るのに使う
+export const similarPair = (data, a, b) => similarMeasure(data).compare(similarFacts(a), similarFacts(b));
+
+// 類似の見直し（定義 2026-11-02-002）。保存済み（独立のメモを除く）どうしで、ゆるい下限を超えた組か強い印の組を、点の多い順に。
+// labels（data.similarLabels、[[a, b, same], ...]）にある組は出さない。[{ a, b, reason, words, mass, now（今の下限で確かめに出るか） }]
+// ゆるい下限は、本番のデータ（2026-11-02、74件・2701組）で組が 20〜60 ほど出る所に決めた（45組。定義 2026-11-02-002 の完了報告）。
+// そのデータでは今の下限を超える組が1つもなく、コサインの大きい組も少ないので、低い所になった。保存が増えて組が多すぎたら上げる
+const REVIEW_WORDS = 0.07;
+const REVIEW_MASS = 0.5;
+// ponytail: 保存のすべての組を比べる（n² / 2）。数千件で重くなったら、語の転置の索引で候補の組だけを比べる
+export function similarReviewPairs(data, labels = data.similarLabels ?? []) {
+  const m = similarMeasure(data);
+  const done = new Set(labels.map(([a, b]) => (a < b ? `${a}\n${b}` : `${b}\n${a}`)));
   const out = [];
-  for (const { x, f } of items) {
-    if (x.id === b?.id) continue;
-    const reason = [...me.links].some((l) => f.links.has(l)) ? 'link'
-      : (me.place && f.body.includes(me.place)) || (f.place && me.body.includes(f.place)) ? 'place'
-        : me.title && me.title === f.title ? 'title' : null;
-    let words = 0;
-    let mass = 0;
-    for (const t of me.words) if (f.words.has(t)) { words += idf(t) ** 2; mass += idf(t) / top; }
-    words = words && mine ? words / (mine * norm(f.words)) : 0;
-    if (words && me.author && me.author === f.author) words += SIMILAR_AUTHOR;
-    if (!reason && (words < SIMILAR_WORDS || mass < SIMILAR_MASS)) continue;
-    out.push({ bookmark: x, score: (reason ? STRONG : 0) + words, reason: reason ?? 'words' });
+  for (let i = 0; i < m.items.length; i++) {
+    for (let j = i + 1; j < m.items.length; j++) {
+      const [p, q] = m.items[i].x.id < m.items[j].x.id ? [m.items[i], m.items[j]] : [m.items[j], m.items[i]];
+      if (done.has(`${p.x.id}\n${q.x.id}`)) continue;
+      const s = m.compare(p.f, q.f);
+      if (!s.reason && (s.words < REVIEW_WORDS || s.mass < REVIEW_MASS)) continue;
+      out.push({ a: p.x, b: q.x, ...s, now: similarPasses(s) });
+    }
   }
-  return out.sort((p, q) => q.score - p.score || String(q.bookmark.savedAt).localeCompare(String(p.bookmark.savedAt))).slice(0, limit);
+  return out.sort((p, q) => similarScore(q) - similarScore(p));
 }
 
 // 追加の画面の初期の選択（定義 2026-10-30-004・2026-10-31-001・2026-10-31-004）。b は pickByRules と同じ形。自動整理が ON でルールが当たればその組、
@@ -320,22 +365,45 @@ export function initialPlace(data, b) {
   const top = inferPlaces(data, b)[0];
   return top?.sure ? { category: top.category, subcategory: top.subcategory, by: 'infer' } : null;
 }
-// 整理の候補（定義 2026-10-30-004・2026-10-31-004）。[{ b, to: { category, subcategory }, by: 'rule' | 'infer' }]。
-// 先にルールが当たる行き先と今の場所が違うもの（未分類とメモも）、続けて未分類でルールが当たらず、推し量った一番が確かなもの。それぞれ保存の新しい順
+// 整理の候補（定義 2026-10-30-004・2026-10-31-004・2026-11-02-002）。[{ b, to: { category, subcategory }, by: 'rule' | 'infer' | 'maybe' }]。
+// 先にルールが当たる行き先と今の場所が違うもの（未分類とメモも）、続けて未分類でルールが当たらず、推し量った一番が確かなもの、
+// 確かではないが点が MAYBE_MIN 以上のもの（たぶん）。それぞれ保存の新しい順。外した行き先（b.sortDismissed）と同じ候補は出さない
 const newer = (x, y) => String(y.b.savedAt).localeCompare(String(x.b.savedAt));
+// 本番のデータ（2026-11-02、74件）を scripts/suggest-eval.mjs の「たぶん」の行で測って決めた（定義 2026-11-02-002 の完了報告）。
+// 確かではない一番の1番目の率は、点 0.5 以上で 48.0%（50件）、1 以上で 53.5%（43件）。件数はあまり変わらないので、率の高い方
+const MAYBE_MIN = 1;
 export function sortCandidates(data) {
-  const rule = [];
-  const infer = [];
+  const lists = { rule: [], infer: [], maybe: [] };
+  const put = (b, to, by) => { if (b.sortDismissed !== keyOf(to.category, to.subcategory)) lists[by].push({ b, to, by }); };
   for (const b of data.bookmarks) {
     const to = pickByRules(data.rules, b);
     if (placeExists(data, to)) {
-      if (b.category !== to.category || subOf(data, b) !== (to.subcategory ?? null)) rule.push({ b, to, by: 'rule' });
+      if (b.category !== to.category || subOf(data, b) !== (to.subcategory ?? null)) put(b, { category: to.category, subcategory: to.subcategory ?? null }, 'rule');
     } else if (!data.categories.includes(b.category)) {
       const top = inferPlaces(data, b, { skip: b.id })[0];
-      if (top?.sure) infer.push({ b, to: { category: top.category, subcategory: top.subcategory }, by: 'infer' });
+      if (top?.sure || top?.score >= MAYBE_MIN) put(b, { category: top.category, subcategory: top.subcategory }, top.sure ? 'infer' : 'maybe');
     }
   }
-  return [...rule.sort(newer), ...infer.sort(newer)];
+  return [...lists.rule.sort(newer), ...lists.infer.sort(newer), ...lists.maybe.sort(newer)];
+}
+
+// 追加の記録（定義 2026-11-02-002）。bookmark は保存するもの（ops.add に渡すもの。category・subcategory が選んだ組）、data は保存の前のもの。
+// similar は確かめに出した similarBookmarks（出していなければ空）。client は 'web' | 'app' | 'ext-popup' | 'ext-inline'
+const placeBrief = (p) => (p ? { category: p.category, subcategory: p.subcategory ?? null } : null);
+export const similarBrief = (list) => list.map((s) => ({ id: s.bookmark.id, reason: s.reason, score: round3(s.score) }));
+export function addTrace(data, bookmark, { client, similar = [] }) {
+  const rule = pickByRules(data.rules, bookmark);
+  const initial = initialPlace(data, bookmark);
+  return {
+    client,
+    infer: inferPlaces(data, bookmark).slice(0, 3).map((p) => ({ ...placeBrief(p), score: round3(p.score), sure: p.sure })),
+    shown: suggestPlaces(data, bookmark).length,
+    rule: placeExists(data, rule) ? placeBrief(rule) : null,
+    initial: initial ? { ...placeBrief(initial), by: initial.by } : null,
+    chosen: placeBrief(bookmark),
+    similar: similarBrief(similar),
+    near: similarNear(data, bookmark),
+  };
 }
 
 // ルールの案（定義 2026-10-31-004）。これまでの保存（今ある組にあるもの）から、作者・URL の段・ハッシュタグ・語（英数字・カタカナは3文字以上、漢字は2文字以上）・
@@ -416,7 +484,8 @@ export function normalize(raw) {
   const suggestFirst = raw?.suggestFirst === true;
   const addCreate = ADD_CREATES.includes(raw?.addCreate) ? raw.addCreate : 'both';
   const suggestCount = SUGGEST_COUNTS.includes(raw?.suggestCount) ? raw.suggestCount : 3;
-  return { categories, subcategories, categoryColors, accent: hex(raw?.accent), accentOn: hex(raw?.accentOn), theme, pinnedCategories, categorySort, chipLayout, autoSort, rules, suggestFirst, addCreate, suggestCount, bookmarks };
+  const similarLabels = (Array.isArray(raw?.similarLabels) ? raw.similarLabels : []).filter((l) => Array.isArray(l) && typeof l[0] === 'string' && typeof l[1] === 'string' && typeof l[2] === 'boolean');
+  return { categories, subcategories, categoryColors, accent: hex(raw?.accent), accentOn: hex(raw?.accentOn), theme, pinnedCategories, categorySort, chipLayout, autoSort, rules, suggestFirst, addCreate, suggestCount, similarLabels, bookmarks };
 }
 
 // ブックマークのサブカテゴリのうち、今もあるものだけ（なければ null）
@@ -424,9 +493,11 @@ export const subOf = (data, b) => (b.subcategory && data.subcategories?.[b.categ
 
 // 一覧を変える操作。Worker の POST /api/ops に { op, args } で送る（検査は Worker が行う）
 export const ops = {
-  add: (bookmark) => ({ op: 'add', args: [bookmark] }),
+  // trace は addTrace の記録（任意。定義 2026-11-02-002）
+  add: (bookmark, trace) => ({ op: 'add', args: trace ? [bookmark, trace] : [bookmark] }),
   remove: (id) => ({ op: 'remove', args: [id] }),
-  setCategory: (id, category, subcategory = null) => ({ op: 'setCategory', args: [id, category, subcategory] }),
+  // via は整理の候補から移したときの印（'sort:rule' | 'sort:infer' | 'sort:maybe'。手で移したときは付けない）
+  setCategory: (id, category, subcategory = null, via) => ({ op: 'setCategory', args: via ? [id, category, subcategory, via] : [id, category, subcategory] }),
   addCategory: (name) => ({ op: 'addCategory', args: [name] }),
   removeCategory: (name) => ({ op: 'removeCategory', args: [name] }),
   sortCategories: (names) => ({ op: 'sortCategories', args: [names] }),
@@ -448,7 +519,11 @@ export const ops = {
   removeRule: (id) => ({ op: 'removeRule', args: [id] }),
   sortRules: (ids) => ({ op: 'sortRules', args: [ids] }),
   // まとめて移す。moves は [[id, カテゴリ, サブカテゴリ], ...]（1〜500件）
-  moveBookmarks: (moves) => ({ op: 'moveBookmarks', args: [moves] }),
+  moveBookmarks: (moves, via) => ({ op: 'moveBookmarks', args: via ? [moves, via] : [moves] }),
+  // 答えの記録（定義 2026-11-02-002）。整理の候補を外す（to は行き先、by は候補の種類）・類似の見直しの答え・類似の確かめの「戻る」
+  dismissCandidate: (id, to, by) => ({ op: 'dismissCandidate', args: [id, to.category, to.subcategory ?? null, by] }),
+  labelSimilar: (a, b, same) => ({ op: 'labelSimilar', args: [a, b, same] }),
+  similarBack: (id, similar) => ({ op: 'logEvent', args: ['similar-back', id, { similar: similarBrief(similar) }] }),
   // 追加の画面（定義 2026-10-31-001）。おすすめを最初から選ぶか（真偽）と、その場で作れるもの（ADD_CREATES のどれか）
   setSuggestFirst: (on) => ({ op: 'setSuggestFirst', args: [on] }),
   setAddCreate: (value) => ({ op: 'setAddCreate', args: [value] }),

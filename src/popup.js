@@ -3,10 +3,10 @@
 // 追加できないページでは、そのページを控える独立のメモの追加の画面（題はタブの題、URL は https のときだけ入れておく）。
 // 保存先は Twimark の Worker（PUBLIC_URL）で、覚えた拡張のトークンで認証する。問い合わせの間は経った秒数を出し、失敗したらエラーコードを出す。
 // 追加の画面には、おすすめの札と、その場で新しいカテゴリ・サブカテゴリを作るボタンを出す（Twimark の定義 2026-10-31-001）
-import { createStore, describeError, initialPlace, memoId, ops, PLACE_REASONS, SITES, PUBLIC_URL, suggestPlaces } from './shared/store.js';
+import { addTrace, createStore, describeError, initialPlace, memoId, ops, PLACE_REASONS, SITES, PUBLIC_URL, suggestPlaces } from './shared/store.js';
 import { parseUrl, fetchMeta } from './shared/meta.js';
 import { clearSettings, hostAllowed, linkWithToken, loadSettings, loginWithPassword, openLinkPage } from './account.js';
-import { bookmarkOf, similarItems } from './bookmark.js';
+import { bookmarkOf, similarItems, similarOfItems } from './bookmark.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('[data-status]');
@@ -223,8 +223,10 @@ async function showAdd(settings) {
       node('span', { className: 'stack' }, node('b', { textContent: s.label }), node('span', { className: 'muted', textContent: s.who }),
         node('span', { className: 'muted' }, ...dot, `${s.place} · ${s.day}`), node('span', { className: 'why', textContent: s.reason }))));
   };
-  $('[data-similar-back]').onclick = () => { closeSimilar(); submit.focus(); };
-  $('[data-similar-ok]').onclick = () => { closeSimilar(); saveNow(); };
+  // 確かめに出した類似（答えの記録に入れる。Twimark の定義 2026-11-02-002）。「戻る」は記録だけ送る（返事を待たず、失敗しても知らせない）
+  let shown = [];
+  $('[data-similar-back]').onclick = () => { closeSimilar(); store.update(ops.similarBack(parsed.id, similarOfItems(shown))).catch(() => {}); submit.focus(); };
+  $('[data-similar-ok]').onclick = () => { closeSimilar(); saveNow(shown); };
 
   form.onsubmit = (e) => {
     e.preventDefault();
@@ -232,12 +234,14 @@ async function showAdd(settings) {
     if (!item && !pasted) { status('本文を貼り付けてください。', 'error'); return; }
     const similar = similarItems(data, bookmarkOf(parsed, item, JSON.parse(select.value), pasted));
     if (!similar.length) { saveNow(); return; }
+    shown = similar;
     $('[data-similar-list]').replaceChildren(...similar.map(similarRow));
     similarBox.hidden = false;
     $('[data-actions]').hidden = true;
     $('[data-similar-ok]').focus();
   };
-  async function saveNow() {
+  // similar は確かめに出して「追加する」が押された類似（similarItems の行。なければ空）
+  async function saveNow(similar = []) {
     const [category, subcategory] = JSON.parse(select.value);
     const pasted = form.elements.namedItem('text').value.trim();
     const wants = { summary: form.elements.namedItem('wantSummary').checked, translation: form.elements.namedItem('wantTranslation').checked };
@@ -245,7 +249,7 @@ async function showAdd(settings) {
     submit.disabled = true;
     status('保存中…');
     try {
-      await store.update(ops.add(bookmark));
+      await store.update(ops.add(bookmark, addTrace(data, bookmark, { client: 'ext-popup', similar: similarOfItems(similar) })));
       await chrome.storage.local.set({ lastPlace: select.value });
       // ページのアイコンを保存済みの形にするため、background.js に覚えた内容を読み直させる
       chrome.runtime.sendMessage({ type: 'twimark-changed' }).catch(() => {});

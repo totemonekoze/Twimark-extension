@@ -26,7 +26,7 @@ export function bookmarkOf(parsed, item, [category, subcategory], pasted = '', n
 // 類似の投稿の確かめ（Twimark の定義 2026-10-31-009）。ポップアップと小さな画面に出す1行ずつの中身（表示に要る項目だけ）。
 // b は追加しようとしているもの（id・site・url・author・title・text）。似ているものがなければ空
 export function similarItems(data, b) {
-  return similarBookmarks(data, b).map(({ bookmark: x, reason }) => {
+  return similarBookmarks(data, b).map(({ bookmark: x, reason, score }) => {
     const tone = data.categoryColors?.[x.category] ?? (data.categories.includes(x.category) ? CYCLE[data.categories.indexOf(x.category) % CYCLE.length] : null);
     return {
       id: x.id,
@@ -39,6 +39,11 @@ export function similarItems(data, b) {
       color: tone ? (tone.startsWith('#') ? tone : tones[tone]?.[0]?.[0] ?? null) : null,
       day: x.savedAt ? new Date(x.savedAt).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '',
       reason: SIMILAR_REASONS[reason],
+      // 答えの記録に入れる元の値（Twimark の定義 2026-11-02-002）
+      why: reason,
+      score,
     };
   });
 }
+// similarItems の行を、store.js の addTrace・ops.similarBack が受ける形（similarBookmarks と同じ）に戻す
+export const similarOfItems = (items) => items.map((s) => ({ bookmark: { id: s.id }, reason: s.why, score: s.score }));

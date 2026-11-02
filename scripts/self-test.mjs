@@ -86,8 +86,8 @@ test('拡張: manifest の参照とページの import が、すべて src の�
 // ---- 定義 2026-10-24-003（投稿・記事のブックマークのアイコン） ----
 // 定義 2026-10-25-009 で、対象に Instagram・pixiv・BOOTH を足した。版は 2026-10-25-010 で 0.6.1、その追記で 0.6.2、そのレビューの差し戻しで 0.6.3 に
 // 定義 2026-10-26-002 で GitHub・unityroom・ふりーむ！を足し、006（メモの追加）と合わせて版を 0.7.0 に。007（要約見出しを作る・翻訳するのトグル）で 0.8.0 に
-// Twimark の定義 2026-10-31-008 で Google マップ・レシピ・お店を足し、009（類似の確かめ）と合わせて版を 0.10.0 に
-test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！・Google マップ・レシピとお店のサイトだけ。アイコンの絵が4つあり、版は 0.10.0', () => {
+// Twimark の定義 2026-10-31-008 で Google マップ・レシピ・お店を足し、009（類似の確かめ）と合わせて版を 0.10.0 に。2026-11-02-002（答えの記録）で 0.11.0 に
+test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！・Google マップ・レシピとお店のサイトだけ。アイコンの絵が4つあり、版は 0.11.0', () => {
   const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
   const content = manifest.content_scripts.find((s) => s.js.includes('content.js'));
   for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm|github\.com|unityroom\.com|www\.freem\.ne\.jp|cookpad\.com|delishkitchen\.tv|www\.kurashiru\.com|recipe\.rakuten\.co\.jp|www\.hotpepper\.jp|r\.gnavi\.co\.jp|www\.google\.(?:com|co\.jp)\/maps)\/\*$/, m);
@@ -101,7 +101,7 @@ test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOO
   }
   assert.deepEqual(Object.keys(manifest.icons), ['16', '32', '48', '128']);
   for (const p of Object.values(manifest.icons)) assert.ok(existsSync(new URL(`../src/${p}`, import.meta.url)), p);
-  assert.equal(manifest.version, '0.10.0');
+  assert.equal(manifest.version, '0.11.0');
 });
 test('拡張: Google マップ・レシピ・お店のボタンの目印と URL の形。右クリックの対象にもある（Twimark の定義 2026-10-31-008）', () => {
   const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
@@ -137,13 +137,17 @@ test('拡張: GitHub・unityroom・ふりーむ！のボタンの目印と URL �
   for (const p of ["'https://github.com/*/*'", "'https://unityroom.com/games/*'", "'https://www.freem.ne.jp/win/game/*'"]) assert.ok(bg.includes(p), p);
 });
 test('拡張: 類似の投稿の確かめ。similarItems は表示に要る項目だけ（色・わけ・カテゴリ）。ポップアップと小さな画面は「追加する」「戻る」を出し、小さな画面は confirmed で送り直す（Twimark の定義 2026-10-31-009）', async () => {
-  const { similarItems } = await import('../src/bookmark.js');
+  const { similarItems, similarOfItems } = await import('../src/bookmark.js');
   const data = { categories: ['ツール', '食べ物'], subcategories: {}, categoryColors: { 食べ物: '#AA3300' }, bookmarks: [
     { id: 'x:1', site: 'x', url: 'https://x.com/a/status/1', author: { name: 'A', handle: 'a' }, title: '', text: 'この記事 https://zenn.dev/foo/articles/abc', category: 'ツール', subcategory: null, savedAt: '2026-10-30T01:00:00Z', photos: [{ url: 'https://pbs.twimg.com/1.jpg' }] },
     { id: 'hotpepper:J1', site: 'hotpepper', url: 'https://www.hotpepper.jp/strJ000000001/', author: { name: '', handle: '' }, title: 'ヒマラヤカリー 白金店', text: '', category: '食べ物', subcategory: null, savedAt: '2026-10-29T01:00:00Z' },
   ] };
   const [link] = similarItems(data, { id: 'x:2', site: 'x', url: 'https://x.com/b/status/2', author: { name: 'B', handle: 'b' }, title: '', text: 'https://zenn.dev/foo/articles/abc を読んだ' });
-  assert.deepEqual(link, { id: 'x:1', url: 'https://x.com/a/status/1', thumb: 'https://pbs.twimg.com/1.jpg', initial: 'X', label: 'この記事 https://zenn.dev/foo/articles/abc', who: 'A · @a · X', place: 'ツール', color: '#3a676b', day: '2026/10/30', reason: '同じリンク' });
+  // why・score は答えの記録に入れる元の値（Twimark の定義 2026-11-02-002）。similarOfItems で similarBookmarks の形に戻す
+  const { why, score, ...shownRow } = link;
+  assert.ok(why === 'link' && score >= 3);
+  assert.deepEqual(similarOfItems([link]), [{ bookmark: { id: 'x:1' }, reason: 'link', score }]);
+  assert.deepEqual(shownRow, { id: 'x:1', url: 'https://x.com/a/status/1', thumb: 'https://pbs.twimg.com/1.jpg', initial: 'X', label: 'この記事 https://zenn.dev/foo/articles/abc', who: 'A · @a · X', place: 'ツール', color: '#3a676b', day: '2026/10/30', reason: '同じリンク' });
   const [shop] = similarItems(data, { id: 'x:3', site: 'x', url: 'https://x.com/c/status/3', author: { name: 'C', handle: 'c' }, title: '', text: 'ヒマラヤカリー白金店のナン' });
   assert.deepEqual([shop.place, shop.color, shop.reason, shop.who], ['食べ物', '#AA3300', '同じ場所', 'ホットペッパーグルメ']);
   assert.deepEqual(similarItems(data, { id: 'x:4', site: 'x', url: 'https://x.com/d/status/4', author: { name: 'D', handle: 'd' }, title: '', text: '関係のない話' }), []);
@@ -152,7 +156,11 @@ test('拡張: 類似の投稿の確かめ。similarItems は表示に要る項�
   for (const part of ['類似の投稿がありますが、追加しますか？', 'data-similar-back>戻る</button>', 'data-similar-ok>追加する</button>', 'role="alertdialog"']) assert.ok(html.includes(part), part);
   assert.ok(popup.includes('similarItems(data, bookmarkOf(') && popup.includes("if (!similar.length) { saveNow(); return; }"));
   for (const part of ['類似の投稿がありますが、追加しますか？', "textContent: '追加する'", "textContent: '戻る'", 'send(true)', 'confirmed });', "setAttribute('role', 'alertdialog')"]) assert.ok(content.includes(part), part);
-  assert.ok(bg.includes('if (!confirmed) {') && bg.includes('similarItems(c.data, bookmark)'));
+  assert.ok(bg.includes('if (!confirmed && similar.length) return { similar };') && bg.includes('similarItems(c.data, bookmark)'));
+  // 答えの記録: 追加は addTrace を付け、「戻る」は記録だけ送る（ポップアップは自分で、小さな画面は background.js の twimark-similar-back）
+  assert.ok(popup.includes("addTrace(data, bookmark, { client: 'ext-popup', similar: similarOfItems(similar) })") && popup.includes('ops.similarBack(parsed.id, similarOfItems(shown))'));
+  assert.ok(bg.includes("addTrace(c.data, bookmark, { client: 'ext-inline', similar: confirmed ? similarOfItems(similar) : [] })") && bg.includes("'twimark-similar-back': (m) => similarBack(m),"));
+  assert.ok(content.includes("ask({ type: 'twimark-similar-back', url, similar: shown })"));
 });
 test('拡張: bookmarkOf はポップアップと小さな画面で同じブックマークを作る（取れなければ貼り付けの本文）', async () => {
   const { bookmarkOf } = await import('../src/bookmark.js');

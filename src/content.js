@@ -471,7 +471,9 @@
           el('span', { className: 'why', textContent: s.reason })));
       return el('li', {}, a);
     };
-    similarBack.addEventListener('click', () => { similarBox.hidden = true; addRow.hidden = false; addBtn.focus(); });
+    // 確かめに出した類似（「戻る」の記録に入れる。Twimark の定義 2026-11-02-002）
+    let shown = [];
+    similarBack.addEventListener('click', () => { similarBox.hidden = true; addRow.hidden = false; ask({ type: 'twimark-similar-back', url, similar: shown }); addBtn.focus(); });
     similarOk.addEventListener('click', () => { similarBox.hidden = true; addRow.hidden = false; send(true); });
     const send = async (confirmed = false) => {
       addBtn.disabled = true;
@@ -480,6 +482,7 @@
       if (panel !== frame) return;
       addBtn.disabled = false;
       if (res?.similar?.length) {
+        shown = res.similar;
         similarList.replaceChildren(...res.similar.map(similarRow));
         similarBox.hidden = false;
         addRow.hidden = true;
