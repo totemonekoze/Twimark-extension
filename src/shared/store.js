@@ -497,6 +497,9 @@ export const ops = {
   // trace は addTrace の記録（任意。定義 2026-11-02-002）
   add: (bookmark, trace) => ({ op: 'add', args: trace ? [bookmark, trace] : [bookmark] }),
   remove: (id) => ({ op: 'remove', args: [id] }),
+  // 古いブックマークの整理（定義 2026-11-07-004）。removeMany は 50 件まで
+  removeMany: (ids) => ({ op: 'removeMany', args: [ids] }),
+  setStaleKeep: (id, on) => ({ op: 'setStaleKeep', args: [id, on] }),
   // via は整理の候補から移したときの印（'sort:rule' | 'sort:infer' | 'sort:maybe'。手で移したときは付けない）
   setCategory: (id, category, subcategory = null, via) => ({ op: 'setCategory', args: via ? [id, category, subcategory, via] : [id, category, subcategory] }),
   addCategory: (name) => ({ op: 'addCategory', args: [name] }),
@@ -570,8 +573,8 @@ async function failure(res) {
   return new StoreError('http', `Twimark がエラーを返しました（${res.status}）。`);
 }
 
-// Workers AI を待つ操作（追加は翻訳と要約見出しを作ってから返す。1回 15 秒まで、fillAi は5件で2回ずつ）は、打ち切りまでを長くする
-const SLOW_OPS = new Set(['add', 'refreshAi', 'fillAi']);
+// Workers AI を待つ操作（1回 15 秒まで、fillAi は5件で2回ずつ）は、打ち切りまでを長くする。追加は待たずに返す（定義 2026-11-07-002）
+const SLOW_OPS = new Set(['refreshAi', 'fillAi']);
 const SLOW_WAIT = 180_000;
 
 // base は Twimark の URL（一覧の画面は同じオリジンなので空）。token があれば Bearer で送り、なければ Cookie を使う。

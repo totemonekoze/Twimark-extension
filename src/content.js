@@ -266,6 +266,26 @@
     return item;
   }
 
+  // 保存できた知らせ（background.js がすべてのタブへ送る）。同じ投稿のボタンを塗る。X は投稿の番号で、ほかはクエリと末尾の / を除いて比べる（ポップアップの URL は形が違うことがある）
+  const urlKey = (u) => u.match(/\/status\/(\d+)/)?.[1] ?? u.replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase();
+  chrome.runtime.onMessage.addListener((m) => {
+    if (m?.type !== 'twimark-saved') return;
+    for (const other of document.querySelectorAll(`[${ICON}][data-twimark-url]`)) if (urlKey(other.dataset.twimarkUrl) === urlKey(m.url)) paint(other, true);
+  });
+
+  // 拡張を読み直したあとの古いページなど、background.js に届かなかったとき（ask の null）
+  const RELOAD = 'ページを再読み込みしてから、もう一度押してください。';
+
+  // 小さな画面を閉じたあとの失敗の知らせ。画面の右下に 6 秒出す（Twimark の定義 2026-11-07-002）
+  function notice(reason) {
+    const host = el('div');
+    const root = host.attachShadow({ mode: 'closed' });
+    root.append(el('style', { textContent: ':host { all: initial; position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; width: 280px; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color-scheme: light dark; } div { display: grid; gap: 2px; padding: 12px 14px; border-radius: 12px; background: Canvas; color: CanvasText; box-shadow: 0 10px 30px rgb(0 0 0 / .25); } b { color: #D70015; } span { font-size: 13px; }' }),
+      el('div', { role: 'alert' }, el('b', { textContent: 'Twimark に追加できませんでした。' }), el('span', { textContent: reason })));
+    document.body.append(host);
+    setTimeout(() => host.remove(), 6000);
+  }
+
   // 小さな画面。サイトの CSS の影響を受けないよう Shadow DOM に作る。外側を押すか Escape で閉じる
   let panel = null;
   const closePanel = () => { panel?.remove(); panel = null; };
@@ -275,7 +295,7 @@
   document.addEventListener('scroll', (e) => { if (panel && !e.composedPath().includes(panel)) closePanel(); }, { capture: true, passive: true });
   const PANEL_CSS = `
     :host { all: initial; position: fixed; z-index: 2147483647; width: 280px; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color-scheme: light dark; }
-    .box { position: relative; display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: Canvas; color: CanvasText; box-shadow: 0 10px 30px rgb(0 0 0 / .22), 0 0 0 .5px rgb(127 127 127 / .3); animation: pop .22s cubic-bezier(.34, 1.56, .64, 1); }
+    .box { position: relative; display: grid; gap: 10px; box-sizing: border-box; max-height: calc(100vh - 16px); overflow-y: auto; padding: 14px; border-radius: 12px; background: Canvas; color: CanvasText; box-shadow: 0 10px 30px rgb(0 0 0 / .22), 0 0 0 .5px rgb(127 127 127 / .3); animation: pop .22s cubic-bezier(.34, 1.56, .64, 1); }
     @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.96); } }
     @media (prefers-reduced-motion: reduce) { .box { animation: none; } }
     h2 { margin: 0 24px 0 0; font-size: 15px; }
@@ -331,16 +351,37 @@
     x.addEventListener('click', closePanel);
     root.append(el('style', { textContent: PANEL_CSS }), box);
     const r = item.getBoundingClientRect();
-    frame.style.top = `${Math.min(r.bottom + 6, innerHeight - 220)}px`;
     frame.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - 140, innerWidth - 288))}px`;
+    // アイコンの下に入らなければ上へ、どちらにも入らなければ画面の中へ。中身が変わるたびに置き直す（Twimark の定義 2026-11-07-002）
+    const fit = () => {
+      const h = box.offsetHeight;
+      const above = r.top - 6 - h;
+      frame.style.top = `${r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : above >= 8 ? above : Math.max(8, innerHeight - h - 8)}px`;
+    };
+    new ResizeObserver(fit).observe(box);
+    // 欄のキーがページへ伝わると、X などのショートカットが動く（Escape は上の capture で受ける）
+    for (const type of ['keydown', 'keyup', 'keypress']) frame.addEventListener(type, (e) => e.stopPropagation());
     document.body.append(frame);
     panel = frame;
     const show = (...kids) => box.replaceChildren(x, el('h2', { textContent: 'Twimark' }), ...kids);
     show(el('p', { className: 'muted', textContent: '読み込み中…' }));
 
+    // 拡張のファイルを入れ替えても service worker が古いまま動いていると、新しい問い合わせ（作る・おすすめ）に答えない（Twimark の定義 2026-11-07-002）。
+    // ページのこのファイルは新しいので比べられる。古ければポップアップの窓を開かせ、popup.js が拡張を読み込み直す
+    const worker = await ask({ type: 'twimark-version' });
+    if (panel !== frame) return;
+    if (worker !== null && worker?.version !== chrome.runtime.getManifest().version) {
+      const again = el('button', { className: 'primary', type: 'button', textContent: '読み込み直す' });
+      again.addEventListener('click', () => { ask({ type: 'twimark-add', url }); closePanel(); });
+      frame.style.setProperty('--accent', '#8DB255');
+      frame.style.setProperty('--on', '#000000');
+      show(el('p', { className: 'err', textContent: '拡張の読み込みが古いままです。読み込み直してから、ページを再読み込みしてください。' }), el('div', { className: 'row' }, again));
+      return;
+    }
+
     const s = await ask({ type: 'twimark-state', url });
     if (panel !== frame) return;
-    if (!s || s.error) { show(el('p', { className: 'err', textContent: s?.error ?? 'ページを再読み込みしてから、もう一度押してください。' })); return; }
+    if (!s || s.error) { show(el('p', { className: 'err', textContent: s?.error ?? RELOAD })); return; }
     if (!s.linked) {
       const link = el('button', { className: 'primary', type: 'button', textContent: 'ログインして連携' });
       link.addEventListener('click', () => { ask({ type: 'twimark-link' }); closePanel(); });
@@ -358,6 +399,10 @@
       show(el('p', { className: 'ok', textContent: `保存済み（${s.saved.sub ? `${s.saved.category} › ${s.saved.sub}` : s.saved.category}）` }), el('div', { className: 'row' }, open));
       return;
     }
+    const addBtn = el('button', { className: 'primary', type: 'button', textContent: '追加' });
+    const addRow = el('div', { className: 'row' }, addBtn);
+    // カテゴリが1つもなければ追加できない（作ると押せる）
+    const noCategory = el('p', { className: 'muted', textContent: 'カテゴリを作ると追加できます。', hidden: true });
     // カテゴリごとの <optgroup> に、カテゴリそのものとサブカテゴリ。値は [カテゴリ, サブカテゴリ] の JSON（ポップアップと同じ）
     const select = el('select');
     select.setAttribute('aria-label', 'カテゴリ');
@@ -377,7 +422,11 @@
     let touched = false;
     // 「＋ サブカテゴリ」（作れるときだけ）。今選んでいるカテゴリに作るので、カテゴリが1つもなければ出さない
     let subButton = null;
-    const paintSub = () => { if (subButton) subButton.hidden = !select.value; };
+    const paintSub = () => {
+      if (subButton) subButton.hidden = !select.value;
+      addBtn.disabled = !select.value;
+      noCategory.hidden = Boolean(select.value);
+    };
     const pick = (p, why = '') => {
       select.value = JSON.stringify([p.category, p.subcategory ?? null]);
       reason.textContent = why;
@@ -402,6 +451,10 @@
     ask({ type: 'twimark-suggest', url }).then((r) => {
       if (panel !== frame) return;
       looking.hidden = true;
+      if (!r || r.error) {
+        looking.textContent = 'おすすめを取得できませんでした。';
+        looking.hidden = s.suggestCount === 0;
+      }
       if (Array.isArray(r?.suggest)) {
         s.suggest = r.suggest;
         if (!touched && r.initial) { pick(r.initial, r.initial.reason); return; }
@@ -427,8 +480,10 @@
       // カテゴリを作るときは選択を読まない（カテゴリが1つもないと選択が空のため）
       const res = await ask({ type: 'twimark-create', kind, category: kind === 'subcategory' ? JSON.parse(select.value)[0] : null, name: nameField.value, url });
       if (panel !== frame) return;
-      if (!res?.created) { msg.textContent = res?.error ?? '作れませんでした。'; return; }
-      Object.assign(s, res);
+      if (!res?.created) { msg.textContent = res?.error ?? RELOAD; return; }
+      // 札と初期の選択は下見から求めたものを残す（res のものは URL だけで求めたもの）
+      const { suggest, initial, ...rest } = res;
+      Object.assign(s, rest);
       fill(s, '');
       touched = true;
       nameField.value = '';
@@ -437,7 +492,8 @@
     };
     const makeBtn = el('button', { type: 'button', className: 'primary', textContent: '作る' });
     makeBtn.addEventListener('click', make);
-    nameField.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); make(); } });
+    // 変換の確定の Enter では送らない
+    nameField.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); make(); } });
     newForm.append(makeBtn);
     subButton = s.addCreate === 'both' ? newButton('subcategory', '＋ サブカテゴリ') : null;
     paintSub();
@@ -453,8 +509,6 @@
     const [summaryRow, wantSummary] = toggle('要約見出しを作る');
     const [translationRow, wantTranslation] = toggle('翻訳する（日本語以外の本文だけ）');
     const msg = el('p', { className: 'err' });
-    const addBtn = el('button', { className: 'primary', type: 'button', textContent: '追加' });
-    const addRow = el('div', { className: 'row' }, addBtn);
     // 類似の投稿の確かめ（Twimark の定義 2026-10-31-009）。background.js が似ているものを返したら、「追加」の段の上に出す。
     // 行を押すと元のページを新しいタブで開く。「追加する」は今の選択で保存し、「戻る」は閉じるだけ
     const similarList = el('ul', { className: 'similar' });
@@ -475,28 +529,32 @@
     let shown = [];
     similarBack.addEventListener('click', () => { similarBox.hidden = true; addRow.hidden = false; ask({ type: 'twimark-similar-back', url, similar: shown }); addBtn.focus(); });
     similarOk.addEventListener('click', () => { similarBox.hidden = true; addRow.hidden = false; send(true); });
+    // 裏で追加する（Twimark の定義 2026-11-07-002）。確かめ（twimark-check）で問題がなければ閉じてから保存を送り、ボタンの色は twimark-saved で変わる
     const send = async (confirmed = false) => {
-      addBtn.disabled = true;
-      msg.textContent = '';
-      const res = await ask({ type: 'twimark-save', url, place: JSON.parse(select.value), text: text.value, wants: { summary: wantSummary.checked, translation: wantTranslation.checked }, confirmed });
-      if (panel !== frame) return;
-      addBtn.disabled = false;
-      if (res?.similar?.length) {
-        shown = res.similar;
-        similarList.replaceChildren(...res.similar.map(similarRow));
-        similarBox.hidden = false;
-        addRow.hidden = true;
-        similarOk.focus();
-        return;
+      const input = { url, place: JSON.parse(select.value), text: text.value, wants: { summary: wantSummary.checked, translation: wantTranslation.checked }, confirmed };
+      if (!confirmed) {
+        addBtn.disabled = true;
+        msg.textContent = '';
+        const res = await ask({ type: 'twimark-check', ...input });
+        if (panel !== frame) return;
+        addBtn.disabled = false;
+        if (res?.similar?.length) {
+          shown = res.similar;
+          similarList.replaceChildren(...res.similar.map(similarRow));
+          similarBox.hidden = false;
+          addRow.hidden = true;
+          similarOk.focus();
+          return;
+        }
+        if (res?.needText) { text.hidden = false; text.focus(); msg.textContent = '本文を貼り付けると追加できます。'; return; }
+        if (!res?.ok) { msg.textContent = res?.error ?? RELOAD; return; }
       }
-      if (res?.needText) { text.hidden = false; text.focus(); msg.textContent = '本文を貼り付けると追加できます。'; return; }
-      if (!res?.ok) { msg.textContent = res?.error ?? '追加できませんでした。'; return; }
-      for (const other of document.querySelectorAll(`[${ICON}][data-twimark-url]`)) if (other.dataset.twimarkUrl === url) paint(other, true);
-      show(el('p', { className: 'ok', textContent: res.already ? 'もう保存されています' : '追加しました' }));
-      setTimeout(() => { if (panel === frame) closePanel(); }, 1000);
+      closePanel();
+      const res = await ask({ type: 'twimark-save', ...input });
+      if (!res?.ok) notice(res?.error ?? (res?.needText ? '本文を取得できませんでした。' : RELOAD));
     };
     addBtn.addEventListener('click', () => send());
-    show(suggestPart, select, reason, ...(creates.length ? [createRow, newForm] : []), text, summaryRow, translationRow, msg, similarBox, addRow);
+    show(suggestPart, select, reason, ...(creates.length ? [createRow, newForm] : []), noCategory, text, summaryRow, translationRow, msg, similarBox, addRow);
     select.focus();
   }
   // アクセントの地の上の文字。白と黒の読みやすいほう（shared/theme.js の accentSet と同じ決め方）

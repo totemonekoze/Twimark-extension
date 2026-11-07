@@ -86,8 +86,8 @@ test('拡張: manifest の参照とページの import が、すべて src の�
 // ---- 定義 2026-10-24-003（投稿・記事のブックマークのアイコン） ----
 // 定義 2026-10-25-009 で、対象に Instagram・pixiv・BOOTH を足した。版は 2026-10-25-010 で 0.6.1、その追記で 0.6.2、そのレビューの差し戻しで 0.6.3 に
 // 定義 2026-10-26-002 で GitHub・unityroom・ふりーむ！を足し、006（メモの追加）と合わせて版を 0.7.0 に。007（要約見出しを作る・翻訳するのトグル）で 0.8.0 に
-// Twimark の定義 2026-10-31-008 で Google マップ・レシピ・お店を足し、009（類似の確かめ）と合わせて版を 0.10.0 に。2026-11-02-002（答えの記録）で 0.11.0 に
-test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！・Google マップ・レシピとお店のサイトだけ。アイコンの絵が4つあり、版は 0.11.0', () => {
+// Twimark の定義 2026-10-31-008 で Google マップ・レシピ・お店を足し、009（類似の確かめ）と合わせて版を 0.10.0 に。2026-11-02-002（答えの記録）で 0.11.0 に。2026-11-07-002（裏で追加）で 0.12.0 に
+test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOOTH・GitHub・unityroom・ふりーむ！・Google マップ・レシピとお店のサイトだけ。アイコンの絵が4つあり、版は 0.12.0', () => {
   const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
   const content = manifest.content_scripts.find((s) => s.js.includes('content.js'));
   for (const m of content.matches) assert.match(m, /^https:\/\/((mobile\.)?twitter\.com|x\.com|note\.com|qiita\.com|www\.instagram\.com|www\.pixiv\.net|booth\.pm|\*\.booth\.pm|github\.com|unityroom\.com|www\.freem\.ne\.jp|cookpad\.com|delishkitchen\.tv|www\.kurashiru\.com|recipe\.rakuten\.co\.jp|www\.hotpepper\.jp|r\.gnavi\.co\.jp|www\.google\.(?:com|co\.jp)\/maps)\/\*$/, m);
@@ -101,7 +101,7 @@ test('拡張: content.js の対象は X・Instagram・note・Qiita・pixiv・BOO
   }
   assert.deepEqual(Object.keys(manifest.icons), ['16', '32', '48', '128']);
   for (const p of Object.values(manifest.icons)) assert.ok(existsSync(new URL(`../src/${p}`, import.meta.url)), p);
-  assert.equal(manifest.version, '0.11.0');
+  assert.equal(manifest.version, '0.12.0');
 });
 test('拡張: Google マップ・レシピ・お店のボタンの目印と URL の形。右クリックの対象にもある（Twimark の定義 2026-10-31-008）', () => {
   const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
@@ -155,12 +155,40 @@ test('拡張: 類似の投稿の確かめ。similarItems は表示に要る項�
   const [popup, html, content, bg] = [read('../src/popup.js'), read('../src/popup.html'), read('../src/content.js'), read('../src/background.js')];
   for (const part of ['類似の投稿がありますが、追加しますか？', 'data-similar-back>戻る</button>', 'data-similar-ok>追加する</button>', 'role="alertdialog"']) assert.ok(html.includes(part), part);
   assert.ok(popup.includes('similarItems(data, bookmarkOf(') && popup.includes("if (!similar.length) { saveNow(); return; }"));
-  for (const part of ['類似の投稿がありますが、追加しますか？', "textContent: '追加する'", "textContent: '戻る'", 'send(true)', 'confirmed });', "setAttribute('role', 'alertdialog')"]) assert.ok(content.includes(part), part);
+  for (const part of ['類似の投稿がありますが、追加しますか？', "textContent: '追加する'", "textContent: '戻る'", 'send(true)', 'wantTranslation.checked }, confirmed };', "setAttribute('role', 'alertdialog')"]) assert.ok(content.includes(part), part);
   assert.ok(bg.includes('if (!confirmed && similar.length) return { similar };') && bg.includes('similarItems(c.data, bookmark)'));
   // 答えの記録: 追加は addTrace を付け、「戻る」は記録だけ送る（ポップアップは自分で、小さな画面は background.js の twimark-similar-back）
   assert.ok(popup.includes("addTrace(data, bookmark, { client: 'ext-popup', similar: similarOfItems(similar) })") && popup.includes('ops.similarBack(parsed.id, similarOfItems(shown))'));
   assert.ok(bg.includes("addTrace(c.data, bookmark, { client: 'ext-inline', similar: confirmed ? similarOfItems(similar) : [] })") && bg.includes("'twimark-similar-back': (m) => similarBack(m),"));
   assert.ok(content.includes("ask({ type: 'twimark-similar-back', url, similar: shown })"));
+});
+// ---- Twimark の定義 2026-11-07-002（裏で追加） ----
+test('拡張: 小さな画面は確かめ（twimark-check）のあと閉じて保存を送り、保存できたらすべてのタブのボタンを塗る。失敗は右下に知らせる', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const [content, bg, popup] = [read('../src/content.js'), read('../src/background.js'), read('../src/popup.js')];
+  assert.ok(content.indexOf("type: 'twimark-check'") < content.indexOf('closePanel();\n      const res = await ask({ type: \'twimark-save\''));
+  for (const part of ["m?.type !== 'twimark-saved'", "if (!res?.ok) notice(", "textContent: 'Twimark に追加できませんでした。'", 'setTimeout(() => host.remove(), 6000)']) assert.ok(content.includes(part), part);
+  for (const part of ["'twimark-check': (m) => save({ ...m, checkOnly: true }),", "chrome.tabs.sendMessage(id, { type: 'twimark-saved', url }).catch(() => {})", 'if (checkOnly) return { ok: true };', 'cache = { at: Date.now(), token: settings.token, data };\n  } catch (err) {', 'tellSaved(url);\n    return { ok: true, already: true };']) assert.ok(bg.includes(part), part);
+  // 下見は twimark-suggest と保存で使い回す。保存のときに取り直さない
+  assert.equal(bg.match(/fetchMeta\(parsed\)/g).length, 1);
+  assert.ok(popup.includes("type: 'twimark-changed', url: target.url"));
+  assert.ok(!JSON.parse(read('../src/manifest.json')).permissions.includes('tabs'));
+});
+test('拡張: service worker が古いまま動いていたら、小さな画面が知らせ、ポップアップが読み込み直す。BUILD は manifest の版と同じ', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const [content, bg, popup] = [read('../src/content.js'), read('../src/background.js'), read('../src/popup.js')];
+  assert.equal(bg.match(/const BUILD = '([^']+)';/)[1], JSON.parse(read('../src/manifest.json')).version);
+  assert.ok(bg.includes("'twimark-version': () => ({ version: BUILD }),"));
+  for (const part of ["worker !== null && worker?.version !== chrome.runtime.getManifest().version", "ask({ type: 'twimark-add', url })", '拡張の読み込みが古いままです。']) assert.ok(content.includes(part), part);
+  assert.ok(popup.includes('worker?.version !== chrome.runtime.getManifest().version) { chrome.runtime.reload(); return; }'));
+});
+test('拡張: 小さな画面は画面の中に収まり、札を残し、変換の確定の Enter で作らず、キーをページへ伝えず、カテゴリが 0 個なら「追加」を押せない', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const [content, popup] = [read('../src/content.js'), read('../src/popup.js')];
+  for (const part of ['max-height: calc(100vh - 16px); overflow-y: auto;', 'new ResizeObserver(fit).observe(box);', "['keydown', 'keyup', 'keypress']", 'e.stopPropagation()', 'const { suggest, initial, ...rest } = res;',
+    "e.key === 'Enter' && !e.isComposing", 'addBtn.disabled = !select.value;', "textContent: 'カテゴリを作ると追加できます。'", "res?.error ?? RELOAD", "'おすすめを取得できませんでした。'"]) assert.ok(content.includes(part), part);
+  assert.ok(!content.includes('Object.assign(s, res);') && !content.includes('innerHeight - 220'));
+  for (const part of ["e.key === 'Enter' && !e.isComposing", 'submit.disabled = !select.value;', "status('カテゴリを作ると追加できます。')", '(next) => { data = next; }', 'onData(data);']) assert.ok(popup.includes(part), part);
 });
 test('拡張: bookmarkOf はポップアップと小さな画面で同じブックマークを作る（取れなければ貼り付けの本文）', async () => {
   const { bookmarkOf } = await import('../src/bookmark.js');
@@ -232,10 +260,10 @@ test('拡張: 対応していないページではメモの追加の画面を出
 test('拡張のアイコン: 追加したら同じ投稿のアイコンを全部塗り、ページを送ったら小さな画面を閉じ、ほかで保存済みなら保存済みとして返す', () => {
   const js = readFileSync(new URL('../src/content.js', import.meta.url), 'utf8');
   assert.match(js, /item\.dataset\.twimarkUrl = url;/);
-  assert.match(js, /other\.dataset\.twimarkUrl === url\) paint\(other, true/);
+  assert.ok(js.includes('urlKey(other.dataset.twimarkUrl) === urlKey(m.url)) paint(other, true)'));
   assert.match(js, /addEventListener\('scroll', \(e\) => \{ if \(panel && !e\.composedPath\(\)\.includes\(panel\)\) closePanel\(\); \}, \{ capture: true, passive: true \}\)/);
   const bg = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
-  assert.match(bg, /err\?\.code !== 'duplicate'\) throw err;\s*forget\(\);\s*return \{ ok: true, already: true \};/);
+  assert.match(bg, /err\?\.code !== 'duplicate'\) throw err;\s*forget\(\);\s*tellSaved\(url\);\s*return \{ ok: true, already: true \};/);
 });
 
 // ---- 公開リポジトリに個人の値を入れない（アプリの定義 2026-10-26-001）。アプリの self-test.mjs にも同じ試験がある ----
@@ -290,7 +318,7 @@ test('拡張: カテゴリが1つもなくても「＋ カテゴリ」で作れ�
   assert.ok(popup.includes("const category = kind === 'subcategory' ? JSON.parse(select.value)[0] : null;"));
   assert.ok(content.includes("category: kind === 'subcategory' ? JSON.parse(select.value)[0] : null"));
   assert.ok(!content.includes("category: JSON.parse(select.value)[0], name"));
-  assert.ok(content.includes("const paintSub = () => { if (subButton) subButton.hidden = !select.value; };"));
+  assert.ok(content.includes('if (subButton) subButton.hidden = !select.value;'));
   assert.ok(content.includes("el('span', { className: 'muted', textContent: 'おすすめ' }), chips"));
   assert.ok(content.includes('button[hidden] { display: none; }'));
 });
@@ -301,7 +329,7 @@ test('拡張: 小さな画面が twimark-suggest を送り、background.js が�
   const content = read('../src/content.js');
   const background = read('../src/background.js');
   for (const part of ["ask({ type: 'twimark-suggest', url })", 'おすすめを探しています…', 'if (!touched && r.initial)', 'touched = true;', 'hidden: s.suggestCount === 0']) assert.ok(content.includes(part), part);
-  for (const part of ["'twimark-suggest': (m) => suggestFor(m),", 'suggestCount: data.suggestCount,', 'const item = await fetchMeta(parsed).catch(() => null);', "if (!item) return { suggest: null };"]) assert.ok(background.includes(part), part);
+  for (const part of ["'twimark-suggest': (m) => suggestFor(m),", 'suggestCount: data.suggestCount,', 'const item = await metaOf(parsed);', "if (!item) return { suggest: null };"]) assert.ok(background.includes(part), part);
 });
 
 let failed = 0;

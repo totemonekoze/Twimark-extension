@@ -107,7 +107,8 @@ function fillCategories(target, data, lastPlace) {
 // おすすめの札・初期の選択・その場で作るボタン。facts は suggestPlaces に渡す中身（URL・サイト・作者・題・本文）。
 // 初期の選択は、自動整理のルール（ON のとき）、おすすめの一番（「おすすめを最初から選ぶ」が ON のとき）、前回の組の順。自分で選んだら当て直さない
 const placeValue = (p) => JSON.stringify([p.category, p.subcategory ?? null]);
-function setupPlaces(store, data, facts) {
+// onData は作ったあとのデータを外へ返す（類似の判定と記録が古いデータを見ないように）
+function setupPlaces(store, data, facts, onData) {
   const reason = $('[data-reason]');
   const pick = (p, why = '') => { select.value = placeValue(p); reason.textContent = why; reason.hidden = !why; paint(); };
   const initial = initialPlace(data, facts);
@@ -145,6 +146,7 @@ function setupPlaces(store, data, facts) {
     const category = kind === 'subcategory' ? JSON.parse(select.value)[0] : null;
     try {
       data = await store.update(kind === 'subcategory' ? ops.addSubcategory(category, name) : ops.addCategory(name));
+      onData(data);
     } catch (err) {
       status(failure(err, '作れませんでした。'), 'error');
       return;
@@ -154,11 +156,18 @@ function setupPlaces(store, data, facts) {
     $('[data-new-form]').hidden = true;
     status('');
     pick(kind === 'subcategory' ? { category, subcategory: name } : { category: name, subcategory: null });
+    needCategory();
   };
   $('[data-new-save]').onclick = make;
-  // 名前の欄の Enter で、追加の形を送らない
-  nameField.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); make(); } };
+  // 名前の欄の Enter で、追加の形を送らない。変換の確定の Enter では作らない
+  nameField.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); make(); } };
+  // カテゴリが1つもなければ追加できない（Twimark の定義 2026-11-07-002）
+  function needCategory() {
+    submit.disabled = !select.value;
+    if (!select.value) status('カテゴリを作ると追加できます。');
+  }
   paint();
+  needCategory();
 }
 
 // トークンが取り消されていたら、忘れてログインからやり直す（やり直したら true）
@@ -189,7 +198,7 @@ async function showAdd(settings) {
     if (!(await relogin(loaded.reason))) status(failure(loaded.reason, '読み込めませんでした。'), 'error');
     return;
   }
-  const { data } = loaded.value;
+  let { data } = loaded.value;
   const item = meta.status === 'fulfilled' ? meta.value : null;
 
   $('[data-site]').textContent = SITES[parsed.site];
@@ -207,7 +216,7 @@ async function showAdd(settings) {
     return;
   }
   status(item ? '' : '本文を取得できませんでした。貼り付けると保存できます。', item ? '' : 'error');
-  setupPlaces(store, data, { site: parsed.site, url: item?.url ?? parsed.url ?? target.url, author: item?.author ?? { name: '', handle: parsed.handle ?? '' }, title: item?.title ?? '', text: item?.text ?? '' });
+  setupPlaces(store, data, { site: parsed.site, url: item?.url ?? parsed.url ?? target.url, author: item?.author ?? { name: '', handle: parsed.handle ?? '' }, title: item?.title ?? '', text: item?.text ?? '' }, (next) => { data = next; });
   select.focus();
 
   // 類似の投稿の確かめ（Twimark の定義 2026-10-31-009）。「追加」で似ているものがあれば保存せずに出す。出したあとに選択やメモを変えてもよく、
@@ -251,13 +260,14 @@ async function showAdd(settings) {
     try {
       await store.update(ops.add(bookmark, addTrace(data, bookmark, { client: 'ext-popup', similar: similarOfItems(similar) })));
       await chrome.storage.local.set({ lastPlace: select.value });
-      // ページのアイコンを保存済みの形にするため、background.js に覚えた内容を読み直させる
-      chrome.runtime.sendMessage({ type: 'twimark-changed' }).catch(() => {});
+      // background.js に覚えた内容を読み直させ、すべてのタブのページのアイコンを保存済みの形にする
+      chrome.runtime.sendMessage({ type: 'twimark-changed', url: target.url }).catch(() => {});
       status('追加しました。', 'ok');
       if (fromWindow) setTimeout(close, 900);
     } catch (err) {
       status(failure(err, '保存できませんでした。'), 'error');
       submit.disabled = err?.code === 'duplicate';
+      if (err?.code === 'duplicate') chrome.runtime.sendMessage({ type: 'twimark-changed', url: target.url }).catch(() => {});
     }
   }
 }
@@ -303,6 +313,9 @@ async function showMemo(store, target, lastPlace) {
 }
 
 async function main() {
+  // service worker が古いまま動いていたら読み込み直す（このページは新しいファイルで開く。窓とポップアップは閉じる。Twimark の定義 2026-11-07-002）
+  const worker = await chrome.runtime.sendMessage({ type: 'twimark-version' }).catch(() => null);
+  if (worker !== null && worker?.version !== chrome.runtime.getManifest().version) { chrome.runtime.reload(); return; }
   const settings = await loadSettings();
   if (!settings?.token) { showLogin(); return; }
   await showAdd(settings);

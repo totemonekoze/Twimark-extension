@@ -1,5 +1,5 @@
 // 右クリックのメニューと、共有メニューに差し込んだ項目（content.js）から、追加の画面を小さなウィンドウで開く。
-// 投稿・記事のアイコン（content.js）の問い合わせも受ける: 保存済みか（twimark-state）、その場の追加（twimark-save）、
+// 投稿・記事のアイコン（content.js）の問い合わせも受ける: 保存済みか（twimark-state）、追加の前の確かめ（twimark-check）、その場の追加（twimark-save）、
 // 連携の画面（twimark-link）、一覧で開く（twimark-open）、その場でカテゴリ・サブカテゴリを作る（twimark-create）、下見を見たおすすめ（twimark-suggest）。/api/data は覚えておき、5分たつか、追加したら読み直す。
 // module の service worker（manifest の background.type）なので、shared/ を import できる
 import { addTrace, createStore, describeError, initialPlace, ops, PLACE_REASONS, PUBLIC_URL, suggestPlaces } from './shared/store.js';
@@ -21,6 +21,9 @@ const TARGETS = [
   'https://www.hotpepper.jp/str*', 'https://r.gnavi.co.jp/*',
 ];
 const FRESH = 5 * 60 * 1000;
+// 動いている service worker の版。manifest の version と同じにする（scripts/self-test.mjs が見る）。
+// ファイルを入れ替えても、拡張を読み込み直すまで service worker は古いまま動く（getManifest は新しい値を返す）ので、ここに書く（Twimark の定義 2026-11-07-002）
+const BUILD = '0.12.0';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
@@ -82,41 +85,60 @@ const places = (data, facts) => {
   return { suggest: facts ? suggestPlaces(data, facts) : [], initial: initial ? { ...initial, reason: PLACE_REASONS[initial.by] } : null };
 };
 
+// 最後の URL の下見（fetchMeta の Promise）。twimark-suggest と保存で使い回す。取れなかったら次は取り直す（Twimark の定義 2026-11-07-002）
+let lastMeta = null;
+function metaOf(parsed) {
+  if (lastMeta?.id === parsed.id) return lastMeta.item;
+  const entry = { id: parsed.id };
+  entry.item = fetchMeta(parsed).catch(() => null).then((item) => { if (!item && lastMeta === entry) lastMeta = null; return item; });
+  lastMeta = entry;
+  return entry.item;
+}
+
+// 保存できたら、すべてのタブのページのボタンを保存済みにする（tabs.query の id だけを使うので権限は要らない。受け手のないタブの失敗は捨てる）
+async function tellSaved(url) {
+  for (const { id } of await chrome.tabs.query({})) chrome.tabs.sendMessage(id, { type: 'twimark-saved', url }).catch(() => {});
+}
+
 // 小さな画面が開いたあと、ポップアップと同じ下見（作者・題・本文）を取って、おすすめと初期の選択を出し直す（Twimark の定義 2026-10-31-004）。
 // 下見を取れなければ null（小さな画面は今の札のまま）
 async function suggestFor({ url }) {
   const parsed = parseUrl(url);
   const c = await current();
   if (!parsed || !c) return { suggest: null };
-  const item = await fetchMeta(parsed).catch(() => null);
+  const item = await metaOf(parsed);
   if (!item) return { suggest: null };
   return places(c.data, { site: parsed.site, url: item.url ?? parsed.url ?? url, author: item.author ?? { name: '', handle: parsed.handle ?? '' }, title: item.title ?? '', text: item.text ?? '' });
 }
 
 // その場の追加。本文を取れず、貼り付けもなければ needText を返す（小さな画面が本文の欄を出す）。wants は要約見出しを作る・翻訳する。
 // 保存済みと似ているものがあれば、保存せずに similar（similarItems の行）を返す。小さな画面が確かめの段を出し、「追加する」で confirmed をつけて送り直す（Twimark の定義 2026-10-31-009）
-async function save({ url, place, text = '', wants = {}, confirmed = false }) {
+// checkOnly（twimark-check）はここまでで { ok: true } を返す。小さな画面はそのあと閉じて twimark-save を送る（Twimark の定義 2026-11-07-002）
+async function save({ url, place, text = '', wants = {}, confirmed = false, checkOnly = false }) {
   const parsed = parseUrl(url);
   const settings = await loadSettings();
   if (!parsed || !settings?.token) return { error: '追加できません。' };
-  const item = await fetchMeta(parsed).catch(() => null);
+  const item = await metaOf(parsed);
   if (!item && !text.trim()) return { needText: true };
   const bookmark = bookmarkOf(parsed, item, place, text.trim(), '', wants);
   const c = await current();
   const similar = c ? similarItems(c.data, bookmark) : [];
   if (!confirmed && similar.length) return { similar };
+  if (checkOnly) return { ok: true };
   // 答えの記録（Twimark の定義 2026-11-02-002）。confirmed なら、出した類似に「追加する」を選んだ
   const trace = c ? addTrace(c.data, bookmark, { client: 'ext-inline', similar: confirmed ? similarOfItems(similar) : [] }) : undefined;
   try {
-    await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.add(bookmark, trace));
+    const data = await createStore({ base: PUBLIC_URL, token: settings.token }).update(ops.add(bookmark, trace));
+    cache = { at: Date.now(), token: settings.token, data };
   } catch (err) {
     // ほかの端末で保存済み（覚えた内容が古い）。保存済みとして返し、読み直す
     if (err?.code !== 'duplicate') throw err;
     forget();
+    tellSaved(url);
     return { ok: true, already: true };
   }
   await chrome.storage.local.set({ lastPlace: JSON.stringify(place) });
-  forget();
+  tellSaved(url);
   return { ok: true };
 }
 
@@ -150,10 +172,13 @@ function openList({ category, sub }) {
 }
 
 const HANDLERS = {
+  'twimark-version': () => ({ version: BUILD }),
   'twimark-add': (m) => openAdd(m.url),
-  'twimark-changed': () => forget(),
+  // url はポップアップで保存できたページ（メモは url なし）
+  'twimark-changed': (m) => { forget(); if (m.url) tellSaved(m.url); },
   'twimark-state': (m) => state(m.url),
   'twimark-suggest': (m) => suggestFor(m),
+  'twimark-check': (m) => save({ ...m, checkOnly: true }),
   'twimark-save': (m) => save(m),
   'twimark-similar-back': (m) => similarBack(m),
   'twimark-link': () => openLinkPage(),

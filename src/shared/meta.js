@@ -39,7 +39,9 @@ export const RECIPE_SITES = ['cookpad', 'delish', 'kurashiru', 'rakutenrecipe'];
 export const SHOP_SITES = ['hotpepper', 'gnavi'];
 
 // 追加できない URL を入れたときの文（Web・アプリ・Worker・拡張で同じ）
-export const UNSUPPORTED_URL = '追加できるのは X・Instagram のポスト、note・Qiita の記事、pixiv の作品、BOOTH の商品、GitHub のリポジトリ、unityroom・ふりーむ！のゲーム、Google マップの場所、クックパッド・デリッシュキッチン・クラシル・楽天レシピのレシピ、ホットペッパーグルメ・ぐるなびのお店の URL です。';
+// 対象外の URL の知らせ。Web とアプリは続けて UNSUPPORTED_LINK を出し、ヘルプの「追加できるサイト」へのリンクにする（定義 2026-11-07-001）
+export const UNSUPPORTED_URL = 'このサイトは追加できません。';
+export const UNSUPPORTED_LINK = '対象サイトはこちら';
 
 // 入れた文から最初の https://… を抜く（Google マップのアプリの共有は「<場所の名前>\n<短い URL>」のように前に文が付く）。なければそのまま
 export function urlIn(raw) {
