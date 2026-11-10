@@ -112,6 +112,18 @@ function wordsOf(text, add) {
     if (run.length >= 3) for (let i = 0; i < run.length - 1; i++) add(`w:${run.slice(i, i + 2)}`);
   }
 }
+// 要約見出し（b.summary）の語。termsOf と同じ抜き方の 't:' と 'w:' だけ（定義 2026-11-10-001）
+function summaryTerms(summary, add) {
+  const text = foldRule(summary).replace(/https?:\/\/\S+/g, ' ');
+  for (const tag of text.match(TAG) ?? []) add(`t:${tag}`);
+  wordsOf(text.replace(/#/g, ' '), add);
+}
+// termsOf に要約見出しの語を足したもの（おすすめの数え上げと推し量りだけが使う。類似の投稿とルールの案は termsOf のまま）
+function inferTermsOf(b) {
+  const out = termsOf(b);
+  if (typeof b?.summary === 'string' && b.summary) summaryTerms(b.summary, (t) => out.add(t));
+  return out;
+}
 export function termsOf(b) {
   const out = new Set();
   const add = (t) => out.add(t);
@@ -139,11 +151,15 @@ const SMOOTH = 0.5;
 // カテゴリ名: 本文と題に名前そのものがあれば NAME_FULL、名前の語が b の語にあれば1つにつき NAME_WORD（サブカテゴリの組では、カテゴリの名前は半分）
 const NAME_FULL = 1;
 const NAME_WORD = 0.5;
-// 点がこれより小さい組は出さない。一番が SURE_MIN 以上で、2番より SURE_GAP 以上なら「確か」（最初から選ぶ・整理の候補に出す）。
-// 確かのときの1番目が8割以上になる所（上のデータで 6件・83.3%）。差を小さくすると件数は増えるが、5割ほどに下がる
+// 点がこれより小さい組は出さない。一番の見込みを除いた点が SURE_MIN 以上で、点（見込みを含む）が2番の SURE_RATIO 倍以上（2番がなければ下限だけ）なら「確か」（最初から選ぶ・整理の候補に出す）。
+// 件数の見込み（定義 2026-11-10-001）: 点が 0 より大きく保存のある組に PRIOR × log(1 + 組の件数) / log(1 + 数えた保存の件数) を足す。
+// サイトの語だけの点に見込みが足されて「確か」になるのを止めるため、下限だけは見込みを除いた点で見る（追補 2026-11-10）。
+// 保存の語には要約見出しの語も数える（inferTermsOf）。PRIOR・SURE_RATIO は本番のデータ（2026-11-10、今ある組のブックマーク 178件・組 22）を
+// scripts/suggest-eval.mjs で読むだけで測って決めた（定義 2026-11-10-001 の完了報告）。PRIOR を 2 にすると下がる
 const MIN_SCORE = 0.1;
 const SURE_MIN = 1;
-const SURE_GAP = 2;
+const SURE_RATIO = 3;
+const PRIOR = 1;
 const compact = (s) => foldRule(s).replace(/[^\p{L}\p{N}]+/gu, '');
 // カテゴリ名の語。名前そのもの（絵文字・記号を除き2文字以上）と、termsOf と同じ語
 function nameOf(raw) {
@@ -183,7 +199,7 @@ function statsOf(data) {
     const key = keyOf(x.category, x.subcategory || null);
     const place = places.get(key);
     if (!place) continue;
-    const terms = termsOf(x);
+    const terms = inferTermsOf(x);
     byId.set(x.id, { key, terms });
     place.n++;
     if (String(x.savedAt ?? '') > place.at) place.at = String(x.savedAt);
@@ -201,8 +217,8 @@ function statsOf(data) {
 // [{ category, subcategory, score, sure }] を点の多い順（同じなら、その組の一番新しい保存の新しい順）。sure は一番の組だけが持てる
 export function inferPlaces(data, b, { skip } = {}) {
   const st = statsOf(data);
-  const me = termsOf(b);
-  const body = compact(`${b?.title ?? ''}\n${b?.text ?? ''}`.replace(/https?:\/\/\S+/g, ' '));
+  const me = inferTermsOf(b);
+  const body = compact(`${b?.title ?? ''}\n${b?.text ?? ''}\n${b?.summary ?? ''}`.replace(/https?:\/\/\S+/g, ' '));
   const sk = skip ? st.byId.get(skip) : null;
   const n = st.n - (sk ? 1 : 0);
   const less = (key, t) => (sk && sk.key === key && sk.terms.has(t) ? 1 : 0);
@@ -219,11 +235,13 @@ export function inferPlaces(data, b, { skip } = {}) {
       }
     }
     for (const [name, weight] of p.names) score += nameScore(name, body, me, weight);
-    if (score >= MIN_SCORE) list.push({ category: p.category, subcategory: p.subcategory, score, at: p.at });
+    const base = score;
+    if (score > 0 && size > 0) score += (PRIOR * Math.log(1 + size)) / Math.log(1 + n);
+    if (score >= MIN_SCORE) list.push({ category: p.category, subcategory: p.subcategory, score, base, at: p.at });
   }
   list.sort((p, q) => q.score - p.score || (q.at > p.at ? 1 : q.at < p.at ? -1 : 0));
-  return list.map(({ category, subcategory, score }, i) => ({
-    category, subcategory, score, sure: i === 0 && score >= SURE_MIN && score - (list[1]?.score ?? 0) >= SURE_GAP,
+  return list.map(({ category, subcategory, score, base }, i) => ({
+    category, subcategory, score, sure: i === 0 && base >= SURE_MIN && (!list[1] || score >= SURE_RATIO * list[1].score),
   }));
 }
 
@@ -365,15 +383,18 @@ export function initialPlace(data, b) {
   const top = inferPlaces(data, b)[0];
   return top?.sure ? { category: top.category, subcategory: top.subcategory, by: 'infer' } : null;
 }
-// 整理の候補（定義 2026-10-30-004・2026-10-31-004・2026-11-02-002）。[{ b, to: { category, subcategory }, by: 'rule' | 'infer' | 'maybe' }]。
+// 整理の候補（定義 2026-10-30-004・2026-10-31-004・2026-11-02-002・2026-11-10-001）。[{ b, to: { category, subcategory }, by: 'rule' | 'infer' | 'review' | 'maybe' }]。
 // 先にルールが当たる行き先と今の場所が違うもの（未分類とメモも）、続けて未分類でルールが当たらず、推し量った一番が確かなもの、
-// 確かではないが点が MAYBE_MIN 以上のもの（たぶん）。それぞれ保存の新しい順。外した行き先（b.sortDismissed）と同じ候補は出さない
+// 今ある組に入っていてルールが当たらず、その1件を数えずに推し量った一番が確かで今の場所と違うもの（見直し）、
+// 未分類で確かではないが点が MAYBE_MIN 以上のもの（たぶん）。それぞれ保存の新しい順。外した行き先（b.sortDismissed）と同じ候補は出さない
 const newer = (x, y) => String(y.b.savedAt).localeCompare(String(x.b.savedAt));
-// 本番のデータ（2026-11-02、74件）を scripts/suggest-eval.mjs の「たぶん」の行で測って決めた（定義 2026-11-02-002 の完了報告）。
-// 確かではない一番の1番目の率は、点 0.5 以上で 48.0%（50件）、1 以上で 53.5%（43件）。件数はあまり変わらないので、率の高い方
-const MAYBE_MIN = 1;
+// 本番のデータ（2026-11-10、178件）を scripts/suggest-eval.mjs の「たぶん」の行で測って決めた（定義 2026-11-10-001 の完了報告）。
+// 件数の見込みで点が上がったので測り直した。確かではない一番の1番目の率は、点 1 以上で 50.9%（108件）、1.25 以上で 53.3%（92件）、
+// 1.5 以上で 51.9%（79件）。件数はあまり変わらないので、率の高い方
+const MAYBE_MIN = 1.25;
 export function sortCandidates(data) {
-  const lists = { rule: [], infer: [], maybe: [] };
+  const st = statsOf(data);
+  const lists = { rule: [], infer: [], review: [], maybe: [] };
   const put = (b, to, by) => { if (b.sortDismissed !== keyOf(to.category, to.subcategory)) lists[by].push({ b, to, by }); };
   for (const b of data.bookmarks) {
     const to = pickByRules(data.rules, b);
@@ -382,9 +403,12 @@ export function sortCandidates(data) {
     } else if (!data.categories.includes(b.category)) {
       const top = inferPlaces(data, b, { skip: b.id })[0];
       if (top?.sure || top?.score >= MAYBE_MIN) put(b, { category: top.category, subcategory: top.subcategory }, top.sure ? 'infer' : 'maybe');
+    } else if (st.byId.has(b.id)) {
+      const top = inferPlaces(data, b, { skip: b.id })[0];
+      if (top?.sure && !samePlace(top, { category: b.category, subcategory: b.subcategory || null })) put(b, { category: top.category, subcategory: top.subcategory }, 'review');
     }
   }
-  return [...lists.rule.sort(newer), ...lists.infer.sort(newer), ...lists.maybe.sort(newer)];
+  return [...lists.rule.sort(newer), ...lists.infer.sort(newer), ...lists.review.sort(newer), ...lists.maybe.sort(newer)];
 }
 
 // 追加の記録（定義 2026-11-02-002）。bookmark は保存するもの（ops.add に渡すもの。category・subcategory が選んだ組）、data は保存の前のもの。
@@ -497,10 +521,11 @@ export const ops = {
   // trace は addTrace の記録（任意。定義 2026-11-02-002）
   add: (bookmark, trace) => ({ op: 'add', args: trace ? [bookmark, trace] : [bookmark] }),
   remove: (id) => ({ op: 'remove', args: [id] }),
-  // 古いブックマークの整理（定義 2026-11-07-004）。removeMany は 50 件まで
-  removeMany: (ids) => ({ op: 'removeMany', args: [ids] }),
-  setStaleKeep: (id, on) => ({ op: 'setStaleKeep', args: [id, on] }),
-  // via は整理の候補から移したときの印（'sort:rule' | 'sort:infer' | 'sort:maybe'。手で移したときは付けない）
+  // 古いブックマークの整理（定義 2026-11-07-004）。removeMany は 50 件まで。
+  // marks は ids と同じ並びの { kind, sure }、mark は { kind, sure }（staleCandidates の種類と段。あれば stale-remove・stale-keep を記録する。定義 2026-11-10-002）
+  removeMany: (ids, marks) => ({ op: 'removeMany', args: marks ? [ids, marks] : [ids] }),
+  setStaleKeep: (id, on, mark) => ({ op: 'setStaleKeep', args: mark ? [id, on, mark] : [id, on] }),
+  // via は整理の候補から移したときの印（'sort:rule' | 'sort:infer' | 'sort:review' | 'sort:maybe'。手で移したときは付けない）
   setCategory: (id, category, subcategory = null, via) => ({ op: 'setCategory', args: via ? [id, category, subcategory, via] : [id, category, subcategory] }),
   addCategory: (name) => ({ op: 'addCategory', args: [name] }),
   removeCategory: (name) => ({ op: 'removeCategory', args: [name] }),

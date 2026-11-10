@@ -23,7 +23,7 @@ const TARGETS = [
 const FRESH = 5 * 60 * 1000;
 // 動いている service worker の版。manifest の version と同じにする（scripts/self-test.mjs が見る）。
 // ファイルを入れ替えても、拡張を読み込み直すまで service worker は古いまま動く（getManifest は新しい値を返す）ので、ここに書く（Twimark の定義 2026-11-07-002）
-const BUILD = '0.12.0';
+const BUILD = '0.13.0';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
