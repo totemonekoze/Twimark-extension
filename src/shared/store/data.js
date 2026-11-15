@@ -1,5 +1,5 @@
 // 利用者の全データの形をそろえること（normalize）と、行き先（カテゴリとサブカテゴリの組）の比べ方、独立のメモの id（memoId）。
-// API の応答を受け取る client.js、おすすめ・整理（suggest.js・sort.js）、一覧の画面・アプリ・拡張・scripts が使う。
+// API の応答を受け取る client.js、おすすめ・整理（suggest.js・sort.js）、追加の記録（ops.js）、一覧の画面・アプリ・拡張・scripts が使う。
 // よく出る形（ブックマーク 1 件、行き先、利用者の全データなど）は、下の @typedef に 1 回だけ書き、ほかのファイルからはこれを指す
 import { ADD_CREATES, CATEGORY_SORTS, CHIP_LAYOUTS, SUGGEST_COUNTS } from './config.js';
 import { RULE_KINDS } from './rules.js';

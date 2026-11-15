@@ -1,5 +1,6 @@
 // 整理の候補（sortCandidates）と、自動整理のルールの案（ruleProposals）。
-// 一覧の画面とアプリの設定の「自動整理」が使う。どちらもおすすめの数え上げ（suggest.js の statsOf）とルールの当て方（rules.js）の上に立つ
+// 一覧の画面とアプリの設定の「自動整理」が使う。どちらもおすすめの数え上げ（suggest.js の statsOf）とルールの当て方（rules.js）の上に立つ。
+// 「たぶん」の下限（MAYBE_MIN）は scripts/suggest-eval.mjs で測る
 import { foldRule } from './text.js';
 import { pickByRules } from './rules.js';
 import { placeExists, samePlace, subOf } from './data.js';
