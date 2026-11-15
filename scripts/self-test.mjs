@@ -2,7 +2,7 @@
 // アプリ（Twimark の scripts/self-test.mjs）から、拡張の分を移したもの（定義 2026-10-25-011）。共有コード（src/shared）の試験はアプリにある
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { parseUrl } from '../src/shared/meta.js';
 
 const tests = [];
@@ -285,13 +285,20 @@ test('追跡中と未追跡のファイルに、メールアドレス・利用�
 });
 
 // ---- Twimark の定義 2026-10-31-001（おすすめのカテゴリと、その場で作る） ----
-test('拡張: 写した store.js は Twimark のものと先頭の1行のほかは同じ（WorkSpace に Twimark があるときだけ比べる）', () => {
+// Twimark の定義 2026-11-15-001 で、store.js は store/ の 10 ファイルの名前を出す窓口になった。store/ は印の行を足さずにそのまま写す
+test('拡張: 写した store.js は Twimark のものと先頭の1行のほかは同じで、store/ はファイルの一覧と中身が同じ（WorkSpace に Twimark があるときだけ比べる）', async () => {
   const copy = readFileSync(new URL('../src/shared/store.js', import.meta.url), 'utf8');
   assert.ok(copy.startsWith('// Twimark（アプリ）の src/shared/store.js の写し。'));
-  for (const name of ['suggestPlaces', 'initialPlace', 'pickByRules', 'setAddCreate', 'setSuggestFirst']) assert.ok(copy.includes(name), name);
-  const app = new URL('../../../../Application/Twimark/src/shared/store.js', import.meta.url);
+  const store = await import('../src/shared/store.js');
+  for (const name of ['suggestPlaces', 'initialPlace', 'pickByRules']) assert.equal(typeof store[name], 'function', name);
+  for (const name of ['setAddCreate', 'setSuggestFirst']) assert.equal(typeof store.ops[name], 'function', `ops.${name}`);
+  const app = new URL('../../../../Application/Twimark/src/shared/', import.meta.url);
   if (!existsSync(app)) return;
-  assert.equal(copy.slice(copy.indexOf('\n') + 1), readFileSync(app, 'utf8'));
+  assert.equal(copy.slice(copy.indexOf('\n') + 1), readFileSync(new URL('store.js', app), 'utf8'));
+  const mine = new URL('../src/shared/store/', import.meta.url);
+  const files = readdirSync(new URL('store/', app)).sort();
+  assert.deepEqual(readdirSync(mine).sort(), files);
+  for (const f of files) assert.equal(readFileSync(new URL(f, mine), 'utf8'), readFileSync(new URL(`store/${f}`, app), 'utf8'), f);
 });
 
 test('拡張: ポップアップと小さな画面に、おすすめの札・初期の選択の理由・「＋ カテゴリ」「＋ サブカテゴリ」があり、作るのは background.js の twimark-create', () => {

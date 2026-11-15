@@ -47,7 +47,7 @@ node scripts/self-test.mjs
 ```
 
 - `src` がそのまま拡張（`manifest.json` と、共有コードの写し `src/shared/`）。依存パッケージは持たない。
-- `src/shared/` の `meta.js`・`store.js`・`theme.js` は、Twimark（アプリ）の `src/shared` の写し。正本はアプリ側で、アプリで変えたら写し直す（`AGENTS.md`）。
+- `src/shared/` の `meta.js`・`store.js` と `store/`・`theme.js` は、Twimark（アプリ）の `src/shared` の写し。正本はアプリ側で、アプリで変えたら写し直す（`AGENTS.md`）。
 - ページのボタンの絵（`src/icons/mark.svg`・`mark-saved.svg`）は `design/make-mark.jsx` を Illustrator で動かして書き出す（元の絵は `design/twimark-mark.ai`）。拡張のアイコンの PNG（`src/icons/icon-*.png`）は、アプリの `design/icon/make-icon.jsx` に、このプロジェクトの根を3つ目の引数で渡すと書き出される。
 - サイトのボタンの目印は `docs/knowledge/share-menu-dom.md`。
 
