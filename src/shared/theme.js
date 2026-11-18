@@ -11,9 +11,14 @@ export const SCHEMES = ['light', 'dark', 'cream'];
 // テーマと端末の明るさから、色の組の番号（0 ライト、1 ダーク、2 クリーム）
 export const schemeOf = (theme, systemDark) => (theme === 'light' ? 0 : theme === 'dark' ? 1 : theme === 'cream' ? 2 : systemDark ? 1 : 0);
 
-// ---- 色の計算（#RRGGBB） ----
-const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-const hexOf = (rgb) => `#${rgb.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+// ---- 色の計算（#RRGGBB）。isHex・rgbOf・hexOf は Web とアプリの色を選ぶシートも使う（定義 2026-11-18-001） ----
+export const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+export const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+// 欄の文字も受ける（数にできなければ 0）。0〜255 に収めて丸める
+export const hexOf = (rgb) => `#${rgb
+  .map((v) => Math.round(Math.min(255, Math.max(0, Number(v) || 0))).toString(16).padStart(2, '0'))
+  .join('')
+  .toUpperCase()}`;
 export function luminance(hex) {
   const [r, g, b] = rgbOf(hex).map((v) => v / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -77,7 +82,6 @@ export function toneSet(hex) {
   });
 }
 // カテゴリの色の値（決まった色の名前か #RRGGBB）から [[ライトの文字, 地], [ダークの文字, 地]] を返す。点の色は toneDot
-const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 export const tonePair = (key) => (isHex(key) ? toneSet(key) : tones[key] ?? tones.gray);
 export const toneDot = (key, i) => (isHex(key) ? key : tonePair(key)[i][0]);
 const A = accentSet();
